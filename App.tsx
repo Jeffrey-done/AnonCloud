@@ -4,11 +4,12 @@ import { TabType } from './types';
 import RoomView from './components/RoomView';
 import FriendView from './components/FriendView';
 import SettingsView from './components/SettingsView';
-import { MessageSquare, Users, Settings, Shield, Zap } from 'lucide-react';
+import { MessageSquare, Users, Settings, Shield } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>(TabType.ROOM);
-  const DEFAULT_API = 'https://anon-chat-api.jeffreyy.workers.dev';
+  // 更新为用户指定的自定义 API 域名，避开默认的 workers.dev 域名以提高在国内的访问稳定性
+  const DEFAULT_API = 'https://anon-chat-api.64209310.xyz';
 
   const [apiBase, setApiBase] = useState<string>(() => {
     return localStorage.getItem('anon_chat_api_base') || DEFAULT_API;
