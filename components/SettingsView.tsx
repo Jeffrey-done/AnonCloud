@@ -181,7 +181,10 @@ export default {
           </div>
           <div className="flex items-start space-x-3">
             <span className="bg-slate-100 text-slate-600 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0">3</span>
-            <p>在 Worker 的【设置】{'→'}【变量】里，添加 KV 命名空间绑定，变量名设为 <code className="text-blue-600 font-bold bg-blue-50 px-1 rounded">CHAT_KV</code>。</p>
+            <p>
+              在 Worker 的【设置】{' '}<span>&rarr;</span>{' '}【变量】里，添加 KV 命名空间绑定，变量名设为{' '}
+              <code className="text-blue-600 font-bold bg-blue-50 px-1 rounded">CHAT_KV</code>。
+            </p>
           </div>
           <div className="flex items-start space-x-3">
             <span className="bg-slate-100 text-slate-600 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0">4</span>
