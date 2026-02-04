@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Message, MessageType } from '../types';
 import { request } from '../services/api';
-import { Send, UserPlus, Fingerprint, Lock, Copy, CheckCircle2, Check, Image as ImageIcon, Smile, MoreVertical, Trash2, EyeOff, X, Maximize2 } from 'lucide-react';
+import { Send, UserPlus, Fingerprint, Lock, Copy, CheckCircle2, Check, Image as ImageIcon, Smile, X, Maximize2 } from 'lucide-react';
 
 const EMOJIS = ['❤️', '✨', '🔥', '😂', '😭', '🤡', '💀', '💯', '👌', '👀', '🤫', '🌹'];
 
@@ -14,13 +14,7 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [inputMsg, setInputMsg] = useState<string>('');
   const [showEmoji, setShowEmoji] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [menuMsgId, setMenuMsgId] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
-
-  const [localDeletedIds, setLocalDeletedIds] = useState<string[]>(() => {
-    const relKey = [myCode, targetCode].sort().join("_");
-    return JSON.parse(localStorage.getItem(`anon_deleted_friend_${relKey}`) || '[]');
-  });
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -29,16 +23,7 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     localStorage.setItem('anon_my_friend_code', myCode);
     localStorage.setItem('anon_target_friend_code', targetCode);
     localStorage.setItem('anon_friend_paired', String(isPaired));
-    const relKey = [myCode, targetCode].sort().join("_");
-    setLocalDeletedIds(JSON.parse(localStorage.getItem(`anon_deleted_friend_${relKey}`) || '[]'));
   }, [myCode, targetCode, isPaired]);
-
-  useEffect(() => {
-    const relKey = [myCode, targetCode].sort().join("_");
-    if (relKey !== "_") {
-      localStorage.setItem(`anon_deleted_friend_${relKey}`, JSON.stringify(localDeletedIds));
-    }
-  }, [localDeletedIds, myCode, targetCode]);
 
   useEffect(() => {
     let interval: any;
@@ -71,17 +56,6 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
       if (content === undefined) setInputMsg('');
       fetchMessages();
     }
-  };
-
-  const deleteForEveryone = async (msgId: string) => {
-    setLocalDeletedIds(prev => [...prev, msgId]);
-    setMenuMsgId(null);
-    await request<any>(apiBase, '/api/delete-friend-msg', 'POST', { myCode, targetCode, messageId: msgId });
-  };
-
-  const deleteForMe = (msgId: string) => {
-    setLocalDeletedIds(prev => [...prev, msgId]);
-    setMenuMsgId(null);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -131,8 +105,6 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   };
 
   if (isPaired) {
-    const filteredMessages = messages.filter(m => !localDeletedIds.includes(m.id));
-
     return (
       <div className="flex flex-col h-[calc(100vh-12rem)] overflow-hidden">
         {previewImage && (
@@ -154,8 +126,8 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           </button>
         </div>
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-1 space-y-6 pb-4 scroll-smooth" onClick={() => {setMenuMsgId(null); setShowEmoji(false);}}>
-          {filteredMessages.map((m) => {
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-1 space-y-6 pb-4 scroll-smooth" onClick={() => {setShowEmoji(false);}}>
+          {messages.map((m) => {
             const isMe = m.sender === myCode;
             return (
               <div key={m.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group relative animate-in fade-in duration-500 transition-all`}>
@@ -167,23 +139,6 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
                   }`}>
                     {renderMessageContent(m, isMe)}
                   </div>
-                  
-                  <button onClick={(e) => { e.stopPropagation(); setMenuMsgId(menuMsgId === m.id ? null : m.id); }} className="p-1 text-slate-300 hover:text-slate-600 transition-opacity opacity-0 group-hover:opacity-100">
-                    <MoreVertical size={14} />
-                  </button>
-
-                  {menuMsgId === m.id && (
-                    <div className={`absolute ${isMe ? 'right-full mr-2' : 'left-full ml-2'} bottom-0 bg-white border border-slate-200 rounded-2xl shadow-xl z-20 flex flex-col p-1 animate-in zoom-in-95 duration-200 ring-4 ring-black/5`} onClick={(e) => e.stopPropagation()}>
-                      <button onClick={() => deleteForMe(m.id)} className="flex items-center space-x-2 px-3 py-2 text-[11px] font-bold text-slate-600 hover:bg-slate-50 rounded-xl">
-                        <EyeOff size={14} /> <span>Hide</span>
-                      </button>
-                      {isMe && (
-                        <button onClick={() => deleteForEveryone(m.id)} className="flex items-center space-x-2 px-3 py-2 text-[11px] font-bold text-red-600 hover:bg-red-50 rounded-xl">
-                          <Trash2 size={14} /> <span>Recall</span>
-                        </button>
-                      )}
-                    </div>
-                  )}
                 </div>
 
                 <div className={`flex items-center mt-1.5 space-x-1.5 ${isMe ? 'flex-row-reverse space-x-reverse' : ''} px-1`}>

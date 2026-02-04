@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Message, MessageType } from '../types';
 import { request } from '../services/api';
-import { Send, PlusCircle, Copy, CheckCircle2, Image as ImageIcon, Smile, MoreVertical, Trash2, EyeOff, X, Maximize2 } from 'lucide-react';
+import { Send, PlusCircle, Copy, CheckCircle2, Image as ImageIcon, Smile, X, Maximize2 } from 'lucide-react';
 
 const EMOJIS = ['😀', '😂', '😍', '🤔', '😎', '🙄', '🔥', '✨', '👍', '🙏', '❤️', '🎉', '👋', '👀', '🌚', '🤡'];
 
@@ -14,27 +14,15 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [showEmoji, setShowEmoji] = useState(false);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [menuMsgId, setMenuMsgId] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   
-  const [localDeletedIds, setLocalDeletedIds] = useState<string[]>(() => {
-    return JSON.parse(localStorage.getItem(`anon_deleted_room_${activeRoom}`) || '[]');
-  });
-
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     localStorage.setItem('anon_active_room', activeRoom);
     localStorage.setItem('anon_last_room_input', roomCode);
-    setLocalDeletedIds(JSON.parse(localStorage.getItem(`anon_deleted_room_${activeRoom}`) || '[]'));
   }, [activeRoom, roomCode]);
-
-  useEffect(() => {
-    if (activeRoom) {
-      localStorage.setItem(`anon_deleted_room_${activeRoom}`, JSON.stringify(localDeletedIds));
-    }
-  }, [localDeletedIds, activeRoom]);
 
   useEffect(() => {
     let interval: any;
@@ -72,17 +60,6 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
       if (content === undefined) setInputMsg('');
       fetchMessages();
     }
-  };
-
-  const deleteForEveryone = async (msgId: string) => {
-    setLocalDeletedIds(prev => [...prev, msgId]);
-    setMenuMsgId(null);
-    await request<any>(apiBase, '/api/delete-room-msg', 'POST', { roomCode: activeRoom, messageId: msgId });
-  };
-
-  const deleteForMe = (msgId: string) => {
-    setLocalDeletedIds(prev => [...prev, msgId]);
-    setMenuMsgId(null);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -131,8 +108,6 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   };
 
   if (activeRoom) {
-    const filteredMessages = messages.filter(m => !localDeletedIds.includes(m.id));
-
     return (
       <div className="flex flex-col h-[calc(100vh-13rem)] overflow-hidden">
         {previewImage && (
@@ -158,38 +133,20 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           </button>
         </div>
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-1 space-y-4 pb-4 scroll-smooth" onClick={() => {setMenuMsgId(null); setShowEmoji(false);}}>
-          {filteredMessages.length === 0 && (
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-1 space-y-4 pb-4 scroll-smooth" onClick={() => {setShowEmoji(false);}}>
+          {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full space-y-3 opacity-30 select-none">
               <div className="p-4 bg-slate-100 rounded-full"><PlusCircle size={32} className="text-slate-400" /></div>
               <p className="text-xs font-bold uppercase tracking-widest">Waiting for messages...</p>
             </div>
           )}
           
-          {filteredMessages.map((m) => (
+          {messages.map((m) => (
             <div key={m.id} className="flex flex-col items-start group animate-in fade-in slide-in-from-bottom-2 duration-500 overflow-visible transition-all">
               <div className="flex items-end space-x-2 max-w-[85%] relative">
                 <div className="relative px-4 py-3 rounded-[20px] rounded-tl-none border shadow-sm transition-all overflow-hidden bg-white border-slate-200/80 text-slate-800">
                   {renderMessageContent(m)}
                 </div>
-                
-                <button 
-                  onClick={(e) => { e.stopPropagation(); setMenuMsgId(menuMsgId === m.id ? null : m.id); }}
-                  className="p-1.5 text-slate-300 hover:text-slate-600 hover:bg-white rounded-lg opacity-0 group-hover:opacity-100 transition-all border border-transparent hover:border-slate-100 shadow-sm"
-                >
-                  <MoreVertical size={14} />
-                </button>
-
-                {menuMsgId === m.id && (
-                  <div className="absolute left-full bottom-0 ml-2 bg-white border border-slate-200 rounded-2xl shadow-xl z-20 flex flex-col p-1 animate-in zoom-in-95 duration-200 ring-4 ring-black/5" onClick={(e) => e.stopPropagation()}>
-                    <button onClick={() => deleteForMe(m.id)} className="flex items-center space-x-2 px-3 py-2 text-[11px] font-bold text-slate-600 hover:bg-slate-50 rounded-xl">
-                      <EyeOff size={14} /> <span>Hide</span>
-                    </button>
-                    <button onClick={() => deleteForEveryone(m.id)} className="flex items-center space-x-2 px-3 py-2 text-[11px] font-bold text-red-600 hover:bg-red-50 rounded-xl">
-                      <Trash2 size={14} /> <span>Vanish</span>
-                    </button>
-                  </div>
-                )}
               </div>
               <span className="text-[10px] font-medium text-slate-400 mt-1.5 ml-1">{m.time}</span>
             </div>
