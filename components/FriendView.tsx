@@ -41,6 +41,17 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     }
   }, [localDeletedIds, myCode, targetCode]);
 
+  // 好友聊天阅后即焚本地自动清理逻辑
+  useEffect(() => {
+    const burnableMessages = messages.filter(m => m.isBurn && !localDeletedIds.includes(m.id));
+    const timers = burnableMessages.map(m => {
+      return setTimeout(() => {
+        setLocalDeletedIds(prev => [...prev, m.id]);
+      }, 15000); 
+    });
+    return () => timers.forEach(clearTimeout);
+  }, [messages, localDeletedIds]);
+
   useEffect(() => {
     let interval: any;
     if (isPaired && myCode && targetCode) {
@@ -77,14 +88,9 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   };
 
   const deleteForEveryone = async (msgId: string) => {
-    // 立即本地隐藏
     setLocalDeletedIds(prev => [...prev, msgId]);
     setMenuMsgId(null);
-
-    const res = await request<any>(apiBase, '/api/delete-friend-msg', 'POST', { myCode, targetCode, messageId: msgId });
-    if (res.code !== 200) {
-      console.error("Server-side vanish failed:", res.msg);
-    }
+    await request<any>(apiBase, '/api/delete-friend-msg', 'POST', { myCode, targetCode, messageId: msgId });
   };
 
   const deleteForMe = (msgId: string) => {
@@ -162,11 +168,11 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           </button>
         </div>
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-1 space-y-6 pb-4" onClick={() => {setMenuMsgId(null); setShowEmoji(false);}}>
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-1 space-y-6 pb-4 scroll-smooth" onClick={() => {setMenuMsgId(null); setShowEmoji(false);}}>
           {filteredMessages.map((m) => {
             const isMe = m.sender === myCode;
             return (
-              <div key={m.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group relative animate-in fade-in duration-500`}>
+              <div key={m.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group relative animate-in fade-in duration-500 transition-all`}>
                 <div className={`flex items-end space-x-2 max-w-[88%] ${isMe ? 'flex-row-reverse space-x-reverse' : ''}`}>
                   <div className={`relative px-4 py-3 rounded-[24px] shadow-sm transition-all overflow-hidden ${
                     isMe 
@@ -176,7 +182,7 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
                     {m.isBurn && (
                       <div className={`flex items-center space-x-1 mb-1.5 opacity-80 ${isMe ? 'text-white/70' : 'text-orange-600'}`}>
                         <Flame size={10} fill="currentColor" />
-                        <span className="text-[9px] font-black uppercase tracking-tighter">Self-Destruct</span>
+                        <span className="text-[9px] font-black uppercase tracking-tighter animate-pulse">Self-destructing...</span>
                       </div>
                     )}
                     {renderMessageContent(m, isMe)}

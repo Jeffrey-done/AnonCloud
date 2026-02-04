@@ -37,6 +37,17 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     }
   }, [localDeletedIds, activeRoom]);
 
+  // 阅后即焚本地自动清理逻辑
+  useEffect(() => {
+    const burnableMessages = messages.filter(m => m.isBurn && !localDeletedIds.includes(m.id));
+    const timers = burnableMessages.map(m => {
+      return setTimeout(() => {
+        setLocalDeletedIds(prev => [...prev, m.id]);
+      }, 15000); // 15秒后强制本地消失
+    });
+    return () => timers.forEach(clearTimeout);
+  }, [messages, localDeletedIds]);
+
   useEffect(() => {
     let interval: any;
     if (activeRoom) {
@@ -78,15 +89,10 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   };
 
   const deleteForEveryone = async (msgId: string) => {
-    // 策略：立即在本地隐藏该消息。即使 KV 存储同步有延迟，该用户也不会再看到这条消息。
+    // 立即在本地隐藏
     setLocalDeletedIds(prev => [...prev, msgId]);
     setMenuMsgId(null);
-
-    const res = await request<any>(apiBase, '/api/delete-room-msg', 'POST', { roomCode: activeRoom, messageId: msgId });
-    if (res.code !== 200) {
-      console.error("Server-side vanish failed:", res.msg);
-    }
-    // 即使失败了，我们也已经通过 localDeletedIds 在本地将其“隐藏”了
+    await request<any>(apiBase, '/api/delete-room-msg', 'POST', { roomCode: activeRoom, messageId: msgId });
   };
 
   const deleteForMe = (msgId: string) => {
@@ -176,7 +182,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           )}
           
           {filteredMessages.map((m) => (
-            <div key={m.id} className="flex flex-col items-start group animate-in fade-in slide-in-from-bottom-2 duration-500">
+            <div key={m.id} className="flex flex-col items-start group animate-in fade-in slide-in-from-bottom-2 duration-500 overflow-visible transition-all">
               <div className="flex items-end space-x-2 max-w-[85%] relative">
                 <div className={`relative px-4 py-3 rounded-[20px] rounded-tl-none border shadow-sm transition-all overflow-hidden ${
                   m.isBurn 
@@ -186,7 +192,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
                   {m.isBurn && (
                     <div className="flex items-center space-x-1 mb-1.5 opacity-70">
                       <Flame size={10} fill="currentColor" className="text-orange-500" />
-                      <span className="text-[9px] font-black uppercase tracking-tighter">Self-Destruct</span>
+                      <span className="text-[9px] font-black uppercase tracking-tighter animate-pulse">Destructing in 15s...</span>
                     </div>
                   )}
                   {renderMessageContent(m)}
