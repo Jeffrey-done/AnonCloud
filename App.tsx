@@ -4,13 +4,15 @@ import { TabType } from './types';
 import RoomView from './components/RoomView';
 import FriendView from './components/FriendView';
 import SettingsView from './components/SettingsView';
-import { MessageSquare, Users, Settings, Shield } from 'lucide-react';
+import { MessageSquare, Users, Settings, Shield, AlertCircle } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>(TabType.ROOM);
   const [apiBase, setApiBase] = useState<string>(() => {
     return localStorage.getItem('anon_chat_api_base') || 'https://anon-chat-api.your-subdomain.workers.dev';
   });
+
+  const isConfigured = !apiBase.includes('your-subdomain');
 
   useEffect(() => {
     localStorage.setItem('anon_chat_api_base', apiBase);
@@ -27,9 +29,15 @@ const App: React.FC = () => {
             </div>
             <h1 className="text-xl font-bold text-slate-800 tracking-tight">AnonCloud</h1>
           </div>
-          <div className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded-full uppercase tracking-wider">
-            Cloudflare Native
-          </div>
+          {!isConfigured && (
+            <button 
+              onClick={() => setActiveTab(TabType.SETTINGS)}
+              className="flex items-center space-x-1 text-amber-600 bg-amber-50 px-3 py-1.5 rounded-full text-xs font-bold animate-pulse border border-amber-200"
+            >
+              <AlertCircle size={14} />
+              <span>待配置后端</span>
+            </button>
+          )}
         </div>
       </header>
 
@@ -50,7 +58,7 @@ const App: React.FC = () => {
             }`}
           >
             <MessageSquare size={20} />
-            <span className="text-xs font-medium">房间码</span>
+            <span className="text-[10px] font-bold uppercase">Room</span>
           </button>
           <button
             onClick={() => setActiveTab(TabType.FRIEND)}
@@ -59,7 +67,7 @@ const App: React.FC = () => {
             }`}
           >
             <Users size={20} />
-            <span className="text-xs font-medium">私密好友</span>
+            <span className="text-[10px] font-bold uppercase">Private</span>
           </button>
           <button
             onClick={() => setActiveTab(TabType.SETTINGS)}
@@ -68,7 +76,7 @@ const App: React.FC = () => {
             }`}
           >
             <Settings size={20} />
-            <span className="text-xs font-medium">设置</span>
+            <span className="text-[10px] font-bold uppercase">Settings</span>
           </button>
         </div>
       </nav>
