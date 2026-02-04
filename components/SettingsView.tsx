@@ -173,7 +173,7 @@ export default {
         <div className="text-xs text-slate-500 space-y-2 list-decimal list-inside">
           <p>1. 登录 Cloudflare 控制台，创建一个 KV 命名空间（起名为 chat-anon-kv）。</p>
           <p>2. 创建一个 Worker，将上方的黑色背景代码全部替换进去。</p>
-          <p>3. 在 Worker 的【设置】->【变量】里，将刚才的 KV 绑定为变量名 <code className="text-blue-600 font-bold">CHAT_KV</code>。</p>
+          <p>3. 在 Worker 的【设置】→【变量】里，将刚才的 KV 绑定为变量名 <code className="text-blue-600 font-bold">CHAT_KV</code>。</p>
           <p>4. 部署 Worker 后，把它的 URL 填入本页顶部的配置框中。</p>
         </div>
       </div>
