@@ -68,7 +68,6 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
     const rawData = await kv.get(key);
     const data = JSON.parse(rawData || "[]");
     
-    // 逻辑：识别并删除阅后即焚消息
     const hasBurn = data.some((m: any) => m.isBurn);
     if (hasBurn) {
       const remaining = data.filter((m: any) => !m.isBurn);
@@ -79,13 +78,17 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
   }
 
   if (path === "/api/delete-room-msg") {
-    const { roomCode, messageId } = await request.json();
-    const key = `room:msg:${roomCode}`;
-    const rawData = await kv.get(key);
-    if (!rawData) return new Response(JSON.stringify({ code: 404 }), { headers: corsHeaders });
-    const data = JSON.parse(rawData).filter((m: any) => m.id !== messageId);
-    await kv.put(key, JSON.stringify(data), { expirationTtl: 43200 });
-    return new Response(JSON.stringify({ code: 200 }), { headers: corsHeaders });
+    try {
+      const { roomCode, messageId } = await request.json();
+      const key = `room:msg:${roomCode}`;
+      const rawData = await kv.get(key);
+      if (!rawData) return new Response(JSON.stringify({ code: 200, msg: "Already empty" }), { headers: corsHeaders });
+      const data = JSON.parse(rawData).filter((m: any) => m.id !== messageId);
+      await kv.put(key, JSON.stringify(data), { expirationTtl: 43200 });
+      return new Response(JSON.stringify({ code: 200 }), { headers: corsHeaders });
+    } catch (e) {
+      return new Response(JSON.stringify({ code: 500, msg: "Delete operation failed" }), { status: 500, headers: corsHeaders });
+    }
   }
 
   if (path === "/api/create-friend-code") {
@@ -128,7 +131,6 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
     let data = JSON.parse(await kv.get(msgKey) || "[]");
     
     let updated = false;
-    // 标记已读
     data = data.map((m: any) => {
       if (m.sender === targetCode && !m.read) {
         m.read = true;
@@ -137,7 +139,6 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
       return m;
     });
 
-    // 逻辑：接收方看到阅后即焚消息后，下次拉取就没了
     const hasBurnForMe = data.some((m: any) => m.isBurn && m.sender === targetCode);
     if (hasBurnForMe || updated) {
       const remaining = data.filter((m: any) => !(m.isBurn && m.sender === targetCode));
@@ -148,14 +149,18 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
   }
 
   if (path === "/api/delete-friend-msg") {
-    const { myCode, targetCode, messageId } = await request.json();
-    const relKey = [myCode, targetCode].sort().join("_");
-    const msgKey = `friend:msg:${relKey}`;
-    const rawData = await kv.get(msgKey);
-    if (!rawData) return new Response(JSON.stringify({ code: 404 }), { headers: corsHeaders });
-    const data = JSON.parse(rawData).filter((m: any) => m.id !== messageId);
-    await kv.put(msgKey, JSON.stringify(data), { expirationTtl: 43200 });
-    return new Response(JSON.stringify({ code: 200 }), { headers: corsHeaders });
+    try {
+      const { myCode, targetCode, messageId } = await request.json();
+      const relKey = [myCode, targetCode].sort().join("_");
+      const msgKey = `friend:msg:${relKey}`;
+      const rawData = await kv.get(msgKey);
+      if (!rawData) return new Response(JSON.stringify({ code: 200, msg: "Already empty" }), { headers: corsHeaders });
+      const data = JSON.parse(rawData).filter((m: any) => m.id !== messageId);
+      await kv.put(msgKey, JSON.stringify(data), { expirationTtl: 43200 });
+      return new Response(JSON.stringify({ code: 200 }), { headers: corsHeaders });
+    } catch (e) {
+      return new Response(JSON.stringify({ code: 500, msg: "Delete operation failed" }), { status: 500, headers: corsHeaders });
+    }
   }
 
   return new Response(JSON.stringify({ code: 404, msg: "未找到接口" }), { status: 404, headers: corsHeaders });

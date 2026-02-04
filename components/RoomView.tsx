@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Message, MessageType } from '../types';
 import { request } from '../services/api';
-import { Send, PlusCircle, Copy, CheckCircle2, Image as ImageIcon, Smile, MoreVertical, Trash2, EyeOff, Flame, X } from 'lucide-react';
+import { Send, PlusCircle, Copy, CheckCircle2, Image as ImageIcon, Smile, MoreVertical, Trash2, EyeOff, Flame, X, Maximize2 } from 'lucide-react';
 
 const EMOJIS = ['😀', '😂', '😍', '🤔', '😎', '🙄', '🔥', '✨', '👍', '🙏', '❤️', '🎉', '👋', '👀', '🌚', '🤡'];
 
@@ -16,6 +16,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [menuMsgId, setMenuMsgId] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   
   const [localDeletedIds, setLocalDeletedIds] = useState<string[]>(() => {
     return JSON.parse(localStorage.getItem(`anon_deleted_room_${activeRoom}`) || '[]');
@@ -31,7 +32,9 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   }, [activeRoom, roomCode]);
 
   useEffect(() => {
-    localStorage.setItem(`anon_deleted_room_${activeRoom}`, JSON.stringify(localDeletedIds));
+    if (activeRoom) {
+      localStorage.setItem(`anon_deleted_room_${activeRoom}`, JSON.stringify(localDeletedIds));
+    }
   }, [localDeletedIds, activeRoom]);
 
   useEffect(() => {
@@ -75,11 +78,15 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   };
 
   const deleteForEveryone = async (msgId: string) => {
+    // 策略：立即在本地隐藏该消息。即使 KV 存储同步有延迟，该用户也不会再看到这条消息。
+    setLocalDeletedIds(prev => [...prev, msgId]);
+    setMenuMsgId(null);
+
     const res = await request<any>(apiBase, '/api/delete-room-msg', 'POST', { roomCode: activeRoom, messageId: msgId });
-    if (res.code === 200) {
-      setMessages(prev => prev.filter(m => m.id !== msgId));
-      setMenuMsgId(null);
+    if (res.code !== 200) {
+      console.error("Server-side vanish failed:", res.msg);
     }
+    // 即使失败了，我们也已经通过 localDeletedIds 在本地将其“隐藏”了
   };
 
   const deleteForMe = (msgId: string) => {
@@ -102,9 +109,34 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
 
   const renderMessageContent = (m: Message) => {
     const content = (m.content || '').trim();
-    if (m.type === 'image') return <img src={content} className="rounded-2xl max-w-full max-h-[320px] object-cover cursor-pointer" alt="media" onClick={() => window.open(content)} />;
-    if (m.type === 'video') return <video src={content} controls className="rounded-2xl max-w-full max-h-[320px]" />;
-    return <p className="text-[14px] leading-relaxed break-all whitespace-pre-wrap">{m.content}</p>;
+    const isImageData = content.startsWith('data:image/');
+    const isVideoData = content.startsWith('data:video/');
+
+    if (m.type === 'image' || isImageData) {
+      return (
+        <div className="relative group/media">
+          <img 
+            src={content} 
+            className="rounded-2xl max-w-full max-h-[320px] object-cover cursor-zoom-in hover:brightness-90 transition-all shadow-md" 
+            alt="media" 
+            onClick={() => setPreviewImage(content)} 
+          />
+          <div className="absolute top-2 right-2 p-1.5 bg-black/20 backdrop-blur-md rounded-lg text-white opacity-0 group-hover/media:opacity-100 transition-opacity pointer-events-none">
+            <Maximize2 size={12} />
+          </div>
+        </div>
+      );
+    }
+    
+    if (m.type === 'video' || isVideoData) {
+      return <video src={content} controls className="rounded-2xl max-w-full max-h-[320px] shadow-md border border-slate-200" />;
+    }
+
+    return (
+      <div className="max-w-full overflow-hidden">
+        <p className="text-[14px] leading-relaxed break-all whitespace-pre-wrap">{m.content}</p>
+      </div>
+    );
   };
 
   if (activeRoom) {
@@ -112,7 +144,15 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
 
     return (
       <div className="flex flex-col h-[calc(100vh-13rem)] overflow-hidden">
-        {/* Room Header */}
+        {previewImage && (
+          <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in zoom-in duration-300" onClick={() => setPreviewImage(null)}>
+            <img src={previewImage} className="max-w-full max-h-full rounded-2xl shadow-2xl ring-1 ring-white/10" alt="preview" />
+            <button className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all">
+              <X size={24} />
+            </button>
+          </div>
+        )}
+
         <div className="flex items-center justify-between px-2 mb-4">
           <button 
             onClick={() => { navigator.clipboard.writeText(activeRoom); setCopied(true); setTimeout(() => setCopied(false), 2000); }} 
@@ -127,7 +167,6 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           </button>
         </div>
 
-        {/* Message Area */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-1 space-y-4 pb-4 scroll-smooth" onClick={() => {setMenuMsgId(null); setShowEmoji(false);}}>
           {filteredMessages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full space-y-3 opacity-30 select-none">
@@ -139,7 +178,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           {filteredMessages.map((m) => (
             <div key={m.id} className="flex flex-col items-start group animate-in fade-in slide-in-from-bottom-2 duration-500">
               <div className="flex items-end space-x-2 max-w-[85%] relative">
-                <div className={`relative px-4 py-3 rounded-[20px] rounded-tl-none border shadow-sm transition-all ${
+                <div className={`relative px-4 py-3 rounded-[20px] rounded-tl-none border shadow-sm transition-all overflow-hidden ${
                   m.isBurn 
                   ? 'bg-orange-50 border-orange-200 text-orange-900 ring-2 ring-orange-500/10' 
                   : 'bg-white border-slate-200/80 text-slate-800'
@@ -161,7 +200,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
                 </button>
 
                 {menuMsgId === m.id && (
-                  <div className="absolute left-full bottom-0 ml-2 bg-white border border-slate-200 rounded-2xl shadow-xl z-20 flex flex-col p-1 animate-in zoom-in-95 duration-200 ring-4 ring-black/5">
+                  <div className="absolute left-full bottom-0 ml-2 bg-white border border-slate-200 rounded-2xl shadow-xl z-20 flex flex-col p-1 animate-in zoom-in-95 duration-200 ring-4 ring-black/5" onClick={(e) => e.stopPropagation()}>
                     <button onClick={() => deleteForMe(m.id)} className="flex items-center space-x-2 px-3 py-2 text-[11px] font-bold text-slate-600 hover:bg-slate-50 rounded-xl">
                       <EyeOff size={14} /> <span>Hide</span>
                     </button>
@@ -176,7 +215,6 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           ))}
         </div>
 
-        {/* Floating Input Area */}
         <div className="mt-auto px-1 pb-2">
           {showEmoji && (
             <div className="absolute bottom-24 left-4 right-4 bg-white/95 backdrop-blur-md border border-slate-200 p-3 rounded-3xl shadow-2xl z-50 grid grid-cols-8 gap-2 animate-in slide-in-from-bottom-4">
@@ -232,7 +270,6 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     );
   }
 
-  // Entrance Screen
   return (
     <div className="space-y-6 max-w-md mx-auto">
       <div className="bg-white p-8 rounded-[40px] border border-slate-200/60 shadow-xl shadow-slate-200/50 text-center space-y-6">

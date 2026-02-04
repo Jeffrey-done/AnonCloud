@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Message, MessageType } from '../types';
 import { request } from '../services/api';
-import { Send, UserPlus, Fingerprint, Lock, Copy, CheckCircle2, Check, Image as ImageIcon, Smile, MoreVertical, Trash2, EyeOff, Flame, X } from 'lucide-react';
+import { Send, UserPlus, Fingerprint, Lock, Copy, CheckCircle2, Check, Image as ImageIcon, Smile, MoreVertical, Trash2, EyeOff, Flame, X, Maximize2 } from 'lucide-react';
 
 const EMOJIS = ['❤️', '✨', '🔥', '😂', '😭', '🤡', '💀', '💯', '👌', '👀', '🤫', '🌹'];
 
@@ -16,9 +16,11 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [isBurnMode, setIsBurnMode] = useState(false);
   const [copied, setCopied] = useState(false);
   const [menuMsgId, setMenuMsgId] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   const [localDeletedIds, setLocalDeletedIds] = useState<string[]>(() => {
-    return JSON.parse(localStorage.getItem(`anon_deleted_friend_${myCode}_${targetCode}`) || '[]');
+    const relKey = [myCode, targetCode].sort().join("_");
+    return JSON.parse(localStorage.getItem(`anon_deleted_friend_${relKey}`) || '[]');
   });
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -75,10 +77,13 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   };
 
   const deleteForEveryone = async (msgId: string) => {
+    // 立即本地隐藏
+    setLocalDeletedIds(prev => [...prev, msgId]);
+    setMenuMsgId(null);
+
     const res = await request<any>(apiBase, '/api/delete-friend-msg', 'POST', { myCode, targetCode, messageId: msgId });
-    if (res.code === 200) {
-      setMessages(prev => prev.filter(m => m.id !== msgId));
-      setMenuMsgId(null);
+    if (res.code !== 200) {
+      console.error("Server-side vanish failed:", res.msg);
     }
   };
 
@@ -101,9 +106,36 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
 
   const renderMessageContent = (m: Message, isMe: boolean) => {
     const content = (m.content || '').trim();
-    if (m.type === 'image') return <img src={content} className="rounded-2xl max-w-full max-h-[300px] object-cover" alt="media" />;
-    if (m.type === 'video') return <video src={content} controls className="rounded-2xl max-w-full max-h-[300px]" />;
-    return <p className={`text-[14px] leading-relaxed break-all whitespace-pre-wrap ${isMe ? 'text-white' : 'text-slate-800'}`}>{m.content}</p>;
+    const isImageData = content.startsWith('data:image/');
+    const isVideoData = content.startsWith('data:video/');
+
+    if (m.type === 'image' || isImageData) {
+      return (
+        <div className="relative group/media">
+          <img 
+            src={content} 
+            className="rounded-2xl max-w-full max-h-[300px] object-cover cursor-zoom-in shadow-md" 
+            alt="media" 
+            onClick={() => setPreviewImage(content)}
+          />
+          <div className="absolute top-2 right-2 p-1.5 bg-black/20 backdrop-blur-md rounded-lg text-white opacity-0 group-hover/media:opacity-100 transition-opacity pointer-events-none">
+            <Maximize2 size={12} />
+          </div>
+        </div>
+      );
+    }
+    
+    if (m.type === 'video' || isVideoData) {
+      return <video src={content} controls className="rounded-2xl max-w-full max-h-[300px] shadow-md" />;
+    }
+
+    return (
+      <div className="max-w-full overflow-hidden">
+        <p className={`text-[14px] leading-relaxed break-all whitespace-pre-wrap ${isMe ? 'text-white' : 'text-slate-800'}`}>
+          {m.content}
+        </p>
+      </div>
+    );
   };
 
   if (isPaired) {
@@ -111,7 +143,15 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
 
     return (
       <div className="flex flex-col h-[calc(100vh-12rem)] overflow-hidden">
-        {/* Chat Header */}
+        {previewImage && (
+          <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in zoom-in duration-300" onClick={() => setPreviewImage(null)}>
+            <img src={previewImage} className="max-w-full max-h-full rounded-2xl shadow-2xl ring-1 ring-white/10" alt="preview" />
+            <button className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all">
+              <X size={24} />
+            </button>
+          </div>
+        )}
+
         <div className="flex items-center justify-between px-2 mb-4">
           <div className="flex items-center space-x-3 bg-white px-4 py-2 rounded-2xl shadow-sm border border-slate-200/60">
             <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-lg shadow-emerald-200" />
@@ -122,14 +162,13 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           </button>
         </div>
 
-        {/* Conversation Area */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-1 space-y-6 pb-4" onClick={() => {setMenuMsgId(null); setShowEmoji(false);}}>
           {filteredMessages.map((m) => {
             const isMe = m.sender === myCode;
             return (
               <div key={m.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group relative animate-in fade-in duration-500`}>
                 <div className={`flex items-end space-x-2 max-w-[88%] ${isMe ? 'flex-row-reverse space-x-reverse' : ''}`}>
-                  <div className={`relative px-4 py-3 rounded-[24px] shadow-sm transition-all ${
+                  <div className={`relative px-4 py-3 rounded-[24px] shadow-sm transition-all overflow-hidden ${
                     isMe 
                       ? (m.isBurn ? 'bg-orange-600 rounded-tr-none' : 'bg-blue-600 rounded-tr-none shadow-blue-200/50') 
                       : (m.isBurn ? 'bg-orange-50 border border-orange-200 rounded-tl-none ring-2 ring-orange-500/5' : 'bg-white border border-slate-200/80 rounded-tl-none')
@@ -148,7 +187,7 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
                   </button>
 
                   {menuMsgId === m.id && (
-                    <div className={`absolute ${isMe ? 'right-full mr-2' : 'left-full ml-2'} bottom-0 bg-white border border-slate-200 rounded-2xl shadow-xl z-20 flex flex-col p-1 animate-in zoom-in-95 duration-200 ring-4 ring-black/5`}>
+                    <div className={`absolute ${isMe ? 'right-full mr-2' : 'left-full ml-2'} bottom-0 bg-white border border-slate-200 rounded-2xl shadow-xl z-20 flex flex-col p-1 animate-in zoom-in-95 duration-200 ring-4 ring-black/5`} onClick={(e) => e.stopPropagation()}>
                       <button onClick={() => deleteForMe(m.id)} className="flex items-center space-x-2 px-3 py-2 text-[11px] font-bold text-slate-600 hover:bg-slate-50 rounded-xl">
                         <EyeOff size={14} /> <span>Hide</span>
                       </button>
@@ -173,7 +212,6 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           })}
         </div>
 
-        {/* Input area */}
         <div className="mt-auto px-1 pb-2">
           {showEmoji && (
             <div className="absolute bottom-24 left-4 right-4 bg-white/95 backdrop-blur-md border border-slate-200 p-3 rounded-3xl shadow-2xl z-50 grid grid-cols-6 gap-2">
