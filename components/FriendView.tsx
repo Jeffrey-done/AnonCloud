@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Message, MessageType } from '../types';
 import { request } from '../services/api';
-import { Send, UserPlus, Fingerprint, Lock, Copy, CheckCircle2, Check, Image as ImageIcon, Smile, MoreVertical, Trash2, EyeOff, Flame } from 'lucide-react';
+import { Send, UserPlus, Fingerprint, Lock, Copy, CheckCircle2, Check, Image as ImageIcon, Smile, MoreVertical, Trash2, EyeOff, Flame, X } from 'lucide-react';
 
 const EMOJIS = ['❤️', '✨', '🔥', '😂', '😭', '🤡', '💀', '💯', '👌', '👀', '🤫', '🌹'];
 
@@ -90,7 +90,6 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) return alert('文件大小限制 2MB');
     const reader = new FileReader();
     reader.onload = async (ev) => {
       const type: MessageType = file.type.startsWith('video') ? 'video' : 'image';
@@ -100,111 +99,117 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     e.target.value = '';
   };
 
-  const renderMessageContent = (m: Message) => {
+  const renderMessageContent = (m: Message, isMe: boolean) => {
     const content = (m.content || '').trim();
-    const isImage = m.type === 'image' || content.startsWith('data:image/');
-    const isVideo = m.type === 'video' || content.startsWith('data:video/');
-
-    if (isImage) {
-      return (
-        <img 
-          src={content} 
-          className="rounded-xl max-w-[min(100%,240px)] max-h-[300px] object-contain shadow-md" 
-          alt="image" 
-          onClick={() => window.open(content)} 
-        />
-      );
-    }
-    if (isVideo) {
-      return (
-        <video src={content} controls className="rounded-xl max-w-[min(100%,240px)] max-h-[300px] shadow-md" />
-      );
-    }
-    return <p className="text-sm whitespace-pre-wrap leading-relaxed break-all">{m.content}</p>;
+    if (m.type === 'image') return <img src={content} className="rounded-2xl max-w-full max-h-[300px] object-cover" alt="media" />;
+    if (m.type === 'video') return <video src={content} controls className="rounded-2xl max-w-full max-h-[300px]" />;
+    return <p className={`text-[14px] leading-relaxed break-all whitespace-pre-wrap ${isMe ? 'text-white' : 'text-slate-800'}`}>{m.content}</p>;
   };
 
   if (isPaired) {
     const filteredMessages = messages.filter(m => !localDeletedIds.includes(m.id));
 
     return (
-      <div className="flex flex-col h-[calc(100vh-12rem)] relative">
-        <div className="bg-white p-3 rounded-t-xl border border-slate-200 flex items-center justify-between shadow-sm z-10">
-          <div className="flex items-center space-x-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <h3 className="font-bold text-slate-700 text-sm uppercase tracking-wider">{targetCode}</h3>
+      <div className="flex flex-col h-[calc(100vh-12rem)] overflow-hidden">
+        {/* Chat Header */}
+        <div className="flex items-center justify-between px-2 mb-4">
+          <div className="flex items-center space-x-3 bg-white px-4 py-2 rounded-2xl shadow-sm border border-slate-200/60">
+            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-lg shadow-emerald-200" />
+            <h3 className="font-black text-slate-700 text-xs tracking-[0.15em] uppercase">{targetCode}</h3>
           </div>
-          <button onClick={() => setIsPaired(false)} className="text-[10px] text-slate-400 hover:text-red-500 font-bold uppercase tracking-widest">断开</button>
+          <button onClick={() => setIsPaired(false)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
+            <X size={20} />
+          </button>
         </div>
 
-        <div ref={scrollRef} className="flex-1 bg-white border-x border-slate-100 overflow-y-auto p-4 space-y-4" onClick={() => setMenuMsgId(null)}>
+        {/* Conversation Area */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-1 space-y-6 pb-4" onClick={() => {setMenuMsgId(null); setShowEmoji(false);}}>
           {filteredMessages.map((m) => {
             const isMe = m.sender === myCode;
             return (
-              <div key={m.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} animate-in fade-in slide-in-from-bottom-2 group relative`}>
-                <div className="flex items-center space-x-1 max-w-[90%]">
-                  {!isMe && (
-                     <button onClick={(e) => { e.stopPropagation(); setMenuMsgId(menuMsgId === m.id ? null : m.id); }} className="opacity-0 group-hover:opacity-100 p-1 text-slate-400">
-                        <MoreVertical size={14} />
-                     </button>
-                  )}
-                  <div className={`rounded-2xl p-2 shadow-sm border ${isMe ? (isBurnMode && isMe ? 'bg-orange-600 border-orange-500 rounded-tr-none text-white' : 'bg-blue-600 border-blue-500 rounded-tr-none text-white') : (m.isBurn ? 'bg-orange-50 border-orange-200 text-orange-800 rounded-tl-none ring-1 ring-orange-100' : 'bg-slate-50 border-slate-100 rounded-tl-none text-slate-800')} overflow-hidden relative`}>
+              <div key={m.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group relative animate-in fade-in duration-500`}>
+                <div className={`flex items-end space-x-2 max-w-[88%] ${isMe ? 'flex-row-reverse space-x-reverse' : ''}`}>
+                  <div className={`relative px-4 py-3 rounded-[24px] shadow-sm transition-all ${
+                    isMe 
+                      ? (m.isBurn ? 'bg-orange-600 rounded-tr-none' : 'bg-blue-600 rounded-tr-none shadow-blue-200/50') 
+                      : (m.isBurn ? 'bg-orange-50 border border-orange-200 rounded-tl-none ring-2 ring-orange-500/5' : 'bg-white border border-slate-200/80 rounded-tl-none')
+                  }`}>
                     {m.isBurn && (
-                      <div className={`flex items-center space-x-1 mb-1 text-[9px] font-bold uppercase ${isMe ? 'text-orange-200' : 'text-orange-600'}`}>
+                      <div className={`flex items-center space-x-1 mb-1.5 opacity-80 ${isMe ? 'text-white/70' : 'text-orange-600'}`}>
                         <Flame size={10} fill="currentColor" />
-                        <span>阅后即焚</span>
+                        <span className="text-[9px] font-black uppercase tracking-tighter">Self-Destruct</span>
                       </div>
                     )}
-                    {renderMessageContent(m)}
+                    {renderMessageContent(m, isMe)}
                   </div>
-                  {isMe && (
-                     <button onClick={(e) => { e.stopPropagation(); setMenuMsgId(menuMsgId === m.id ? null : m.id); }} className="opacity-0 group-hover:opacity-100 p-1 text-slate-400">
-                        <MoreVertical size={14} />
-                     </button>
+                  
+                  <button onClick={(e) => { e.stopPropagation(); setMenuMsgId(menuMsgId === m.id ? null : m.id); }} className="p-1 text-slate-300 hover:text-slate-600 transition-opacity opacity-0 group-hover:opacity-100">
+                    <MoreVertical size={14} />
+                  </button>
+
+                  {menuMsgId === m.id && (
+                    <div className={`absolute ${isMe ? 'right-full mr-2' : 'left-full ml-2'} bottom-0 bg-white border border-slate-200 rounded-2xl shadow-xl z-20 flex flex-col p-1 animate-in zoom-in-95 duration-200 ring-4 ring-black/5`}>
+                      <button onClick={() => deleteForMe(m.id)} className="flex items-center space-x-2 px-3 py-2 text-[11px] font-bold text-slate-600 hover:bg-slate-50 rounded-xl">
+                        <EyeOff size={14} /> <span>Hide</span>
+                      </button>
+                      {isMe && (
+                        <button onClick={() => deleteForEveryone(m.id)} className="flex items-center space-x-2 px-3 py-2 text-[11px] font-bold text-red-600 hover:bg-red-50 rounded-xl">
+                          <Trash2 size={14} /> <span>Recall</span>
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
 
-                {menuMsgId === m.id && (
-                  <div className={`absolute ${isMe ? 'right-0' : 'left-0'} bottom-full mb-1 bg-white border border-slate-200 rounded-xl shadow-xl z-20 flex flex-col p-1 animate-in zoom-in-95 duration-200`}>
-                    <button onClick={() => deleteForMe(m.id)} className="flex items-center space-x-2 px-3 py-2 text-xs text-slate-600 hover:bg-slate-50 rounded-lg">
-                      <EyeOff size={14} /> <span>仅对自己隐藏</span>
-                    </button>
-                    {isMe && (
-                      <button onClick={() => deleteForEveryone(m.id)} className="flex items-center space-x-2 px-3 py-2 text-xs text-red-600 hover:bg-red-50 rounded-lg">
-                        <Trash2 size={14} /> <span>对所有人撤回</span>
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                <div className={`flex items-center mt-1 space-x-1 ${isMe ? 'flex-row-reverse space-x-reverse' : ''}`}>
-                  <span className="text-[9px] font-medium text-slate-400">{m.time}</span>
-                  {isMe && (m.read ? <div className="flex -space-x-1.5"><Check size={10} className="text-emerald-500" strokeWidth={3}/><Check size={10} className="text-emerald-500" strokeWidth={3}/></div> : <Check size={10} className="text-slate-300" strokeWidth={3}/>)}
+                <div className={`flex items-center mt-1.5 space-x-1.5 ${isMe ? 'flex-row-reverse space-x-reverse' : ''} px-1`}>
+                  <span className="text-[9px] font-black text-slate-300 uppercase tracking-tighter">{m.time}</span>
+                  {isMe && (m.read 
+                    ? <div className="flex -space-x-1.5 opacity-60"><Check size={10} className="text-emerald-500" strokeWidth={3}/><Check size={10} className="text-emerald-500" strokeWidth={3}/></div> 
+                    : <Check size={10} className="text-slate-200" strokeWidth={3}/>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
 
-        {showEmoji && (
-          <div className="absolute bottom-24 left-4 right-4 bg-white border border-slate-200 p-3 rounded-2xl shadow-2xl z-50 grid grid-cols-6 gap-2">
-            {EMOJIS.map(e => <button key={e} onClick={() => { setInputMsg(p => p + e); setShowEmoji(false); }} className="text-3xl p-1 hover:bg-slate-50 rounded-lg">{e}</button>)}
-          </div>
-        )}
-
-        <div className="bg-white p-3 rounded-b-xl border border-slate-200 shadow-inner space-y-2">
-          {isBurnMode && (
-            <div className="flex items-center space-x-2 px-3 py-1 bg-orange-50 text-orange-600 rounded-lg border border-orange-100 animate-in slide-in-from-bottom-2">
-              <Flame size={14} fill="currentColor" />
-              <span className="text-[10px] font-bold uppercase tracking-wider">阅后即焚模式激活</span>
+        {/* Input area */}
+        <div className="mt-auto px-1 pb-2">
+          {showEmoji && (
+            <div className="absolute bottom-24 left-4 right-4 bg-white/95 backdrop-blur-md border border-slate-200 p-3 rounded-3xl shadow-2xl z-50 grid grid-cols-6 gap-2">
+              {EMOJIS.map(e => <button key={e} onClick={() => { setInputMsg(p => p + e); setShowEmoji(false); }} className="text-2xl p-2 hover:bg-slate-50 rounded-xl transition-all">{e}</button>)}
             </div>
           )}
-          <div className="flex items-center space-x-2">
-            <button onClick={() => setShowEmoji(!showEmoji)} className={`p-2 rounded-full transition-colors ${showEmoji ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:bg-slate-100'}`}><Smile size={20} /></button>
-            <button onClick={() => setIsBurnMode(!isBurnMode)} className={`p-2 rounded-full transition-colors ${isBurnMode ? 'bg-orange-100 text-orange-600' : 'text-slate-400 hover:bg-slate-100'}`}><Flame size={20} /></button>
-            <button onClick={() => fileInputRef.current?.click()} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full"><ImageIcon size={20} /></button>
-            <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleFileUpload} />
-            <input type="text" value={inputMsg} onChange={e => setInputMsg(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} placeholder={isBurnMode ? "私密发送并销毁..." : "私密发送..."} className={`flex-1 rounded-full px-4 py-2 text-sm outline-none transition-all ${isBurnMode ? 'bg-orange-50 focus:ring-2 focus:ring-orange-300' : 'bg-slate-50 focus:ring-2 focus:ring-blue-500'}`} />
-            <button onClick={() => sendMessage()} className={`text-white p-2.5 rounded-full shadow-md transition-colors ${isBurnMode ? 'bg-orange-600 hover:bg-orange-700' : 'bg-blue-600 hover:bg-blue-700'}`}><Send size={18} /></button>
+
+          <div className={`relative flex flex-col p-2 rounded-[32px] border transition-all duration-300 ${
+            isBurnMode ? 'bg-orange-600 border-orange-400 shadow-xl shadow-orange-200' : 'bg-slate-900 border-slate-800 shadow-2xl shadow-slate-900/40'
+          }`}>
+            <div className="flex items-center">
+              <button onClick={() => setShowEmoji(!showEmoji)} className="p-2.5 text-white/50 hover:text-white transition-colors"><Smile size={20} /></button>
+              <button onClick={() => setIsBurnMode(!isBurnMode)} className={`p-2.5 rounded-full transition-all relative ${isBurnMode ? 'bg-white text-orange-600' : 'text-white/50 hover:text-orange-400'}`}>
+                <Flame size={20} fill={isBurnMode ? "currentColor" : "none"} />
+              </button>
+              
+              <input 
+                type="text" 
+                value={inputMsg} 
+                onChange={e => setInputMsg(e.target.value)} 
+                onKeyDown={e => e.key === 'Enter' && sendMessage()} 
+                placeholder={isBurnMode ? "Self-destruct message..." : "Private message..."} 
+                className={`flex-1 bg-transparent border-none px-3 py-2.5 text-[15px] font-medium focus:ring-0 outline-none transition-colors text-white placeholder:text-white/30`} 
+              />
+              
+              <div className="flex items-center pr-1">
+                <button onClick={() => fileInputRef.current?.click()} className="p-2.5 text-white/50 hover:text-white"><ImageIcon size={20} /></button>
+                <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleFileUpload} />
+                <button 
+                  onClick={() => sendMessage()} 
+                  className={`p-3 rounded-full shadow-lg transition-all active:scale-90 ${isBurnMode ? 'bg-white text-orange-600' : 'bg-blue-600 text-white'}`}
+                >
+                  <Send size={18} strokeWidth={2.5} />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -212,24 +217,59 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-        <h2 className="text-lg font-bold flex items-center space-x-2 text-blue-600"><Fingerprint size={20} /><span>我的匿名码</span></h2>
+    <div className="space-y-6 max-w-md mx-auto">
+      <div className="bg-white p-8 rounded-[40px] border border-slate-200/60 shadow-xl shadow-slate-200/50 space-y-8">
+        <div>
+          <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center space-x-2">
+            <Fingerprint className="text-blue-600" size={24} />
+            <span>Identity Node</span>
+          </h2>
+          <p className="text-slate-400 text-[12px] font-medium mt-1">Share this code with your contact</p>
+        </div>
+
         {myCode ? (
-          <div className="flex space-x-2">
-            <div className="flex-1 bg-slate-50 border-dashed border-2 border-slate-200 rounded-xl py-3 text-center font-mono font-bold tracking-widest uppercase">{myCode}</div>
-            <button onClick={() => { navigator.clipboard.writeText(myCode); setCopied(true); setTimeout(() => setCopied(false), 2000); }} className="p-3 bg-slate-100 rounded-xl active:scale-90 transition-transform">{copied ? <CheckCircle2 size={20} className="text-green-500" /> : <Copy size={20} />}</button>
+          <div className="group relative">
+            <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-3xl px-4 py-6 text-center">
+              <span className="text-2xl font-black font-mono tracking-[0.4em] text-slate-800 uppercase leading-none">{myCode}</span>
+            </div>
+            <button 
+              onClick={() => { navigator.clipboard.writeText(myCode); setCopied(true); setTimeout(() => setCopied(false), 2000); }} 
+              className="absolute -right-3 -bottom-3 p-4 bg-slate-900 text-white rounded-[24px] shadow-xl shadow-slate-900/30 active:scale-90 transition-all"
+            >
+              {copied ? <CheckCircle2 size={22} className="text-emerald-400" /> : <Copy size={22} />}
+            </button>
           </div>
         ) : (
-          <button onClick={async () => { const res = await request<any>(apiBase, '/api/create-friend-code'); if (res.code === 200) setMyCode(res.friendCode!); }} className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold shadow-lg shadow-slate-100 active:scale-95 transition-transform">生成编码</button>
+          <button 
+            onClick={async () => { const res = await request<any>(apiBase, '/api/create-friend-code'); if (res.code === 200) setMyCode(res.friendCode!); }} 
+            className="w-full bg-slate-900 text-white py-5 rounded-3xl font-black text-sm uppercase tracking-widest shadow-2xl shadow-slate-900/20 active:scale-[0.98] transition-all"
+          >
+            Generate Identity
+          </button>
         )}
       </div>
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-        <h2 className="text-lg font-bold flex items-center space-x-2 text-slate-700"><UserPlus size={20} /><span>开启私聊</span></h2>
-        <div className="space-y-3">
-          <input type="text" value={myCode} onChange={e => setMyCode(e.target.value.toUpperCase())} placeholder="我的编码" className="w-full bg-slate-50 p-3 rounded-xl outline-none uppercase" />
-          <input type="text" value={targetCode} onChange={e => setTargetCode(e.target.value.toUpperCase())} placeholder="对方编码" className="w-full bg-slate-50 p-3 rounded-xl outline-none uppercase" />
-          <button onClick={async () => { const res = await request<any>(apiBase, '/api/add-friend', 'POST', { myCode, targetCode }); if (res.code === 200) setIsPaired(true); }} className="w-full bg-blue-600 text-white py-3.5 rounded-xl font-bold active:scale-95 transition-transform shadow-lg shadow-blue-50">开启私聊</button>
+
+      <div className="bg-white p-8 rounded-[40px] border border-slate-200/60 shadow-xl shadow-slate-200/50 space-y-6">
+        <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center space-x-2">
+          <UserPlus className="text-slate-400" size={24} />
+          <span>Sync Pair</span>
+        </h2>
+        
+        <div className="space-y-4">
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-1 flex items-center">
+             <div className="p-3 text-slate-400"><Fingerprint size={18}/></div>
+             <input type="text" value={myCode} onChange={e => setMyCode(e.target.value.toUpperCase())} placeholder="MY CODE" className="w-full bg-transparent py-4 font-black font-mono text-xs tracking-widest outline-none text-slate-800" />
+          </div>
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-1 flex items-center">
+             <div className="p-3 text-slate-400"><Lock size={18}/></div>
+             <input type="text" value={targetCode} onChange={e => setTargetCode(e.target.value.toUpperCase())} placeholder="TARGET CODE" className="w-full bg-transparent py-4 font-black font-mono text-xs tracking-widest outline-none text-slate-800" />
+          </div>
+          <button 
+            onClick={async () => { const res = await request<any>(apiBase, '/api/add-friend', 'POST', { myCode, targetCode }); if (res.code === 200) setIsPaired(true); }} 
+            className="w-full bg-blue-600 text-white py-5 rounded-3xl font-black text-sm uppercase tracking-widest shadow-xl shadow-blue-200 active:scale-[0.98] transition-all"
+          >
+            Establish Link
+          </button>
         </div>
       </div>
     </div>

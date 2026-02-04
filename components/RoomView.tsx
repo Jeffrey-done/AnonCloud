@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Message, MessageType } from '../types';
 import { request } from '../services/api';
-import { Send, PlusCircle, Copy, CheckCircle2, Image as ImageIcon, Smile, MoreVertical, Trash2, EyeOff, Flame } from 'lucide-react';
+import { Send, PlusCircle, Copy, CheckCircle2, Image as ImageIcon, Smile, MoreVertical, Trash2, EyeOff, Flame, X } from 'lucide-react';
 
 const EMOJIS = ['😀', '😂', '😍', '🤔', '😎', '🙄', '🔥', '✨', '👍', '🙏', '❤️', '🎉', '👋', '👀', '🌚', '🤡'];
 
@@ -90,8 +90,6 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) return alert('文件请限制在 2MB 内');
-
     const reader = new FileReader();
     reader.onload = async (event) => {
       const base64 = event.target?.result as string;
@@ -104,127 +102,172 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
 
   const renderMessageContent = (m: Message) => {
     const content = (m.content || '').trim();
-    const isImage = m.type === 'image' || content.startsWith('data:image/');
-    const isVideo = m.type === 'video' || content.startsWith('data:video/');
-
-    if (isImage) {
-      return (
-        <img 
-          src={content} 
-          className="rounded-xl max-w-[min(100%,260px)] max-h-[300px] object-contain shadow-md" 
-          alt="image" 
-          onClick={() => window.open(content)} 
-        />
-      );
-    }
-    if (isVideo) {
-      return (
-        <video src={content} controls className="rounded-xl max-w-[min(100%,260px)] max-h-[300px] shadow-md" />
-      );
-    }
-    return <p className="text-slate-800 text-sm leading-relaxed break-all whitespace-pre-wrap">{m.content}</p>;
+    if (m.type === 'image') return <img src={content} className="rounded-2xl max-w-full max-h-[320px] object-cover cursor-pointer" alt="media" onClick={() => window.open(content)} />;
+    if (m.type === 'video') return <video src={content} controls className="rounded-2xl max-w-full max-h-[320px]" />;
+    return <p className="text-[14px] leading-relaxed break-all whitespace-pre-wrap">{m.content}</p>;
   };
 
   if (activeRoom) {
     const filteredMessages = messages.filter(m => !localDeletedIds.includes(m.id));
 
     return (
-      <div className="flex flex-col h-[calc(100vh-13rem)] relative animate-in fade-in duration-300">
-        <div className="bg-white p-3 rounded-t-xl border border-slate-200 flex items-center justify-between shadow-sm">
-          <button onClick={() => { navigator.clipboard.writeText(activeRoom); setCopied(true); setTimeout(() => setCopied(false), 2000); }} 
-                  className="flex items-center space-x-1.5 bg-slate-50 px-2.5 py-1 rounded-md border border-slate-200">
-            <span className="text-xs font-mono font-bold text-blue-600">{activeRoom}</span>
-            {copied ? <CheckCircle2 size={12} className="text-green-500" /> : <Copy size={12} className="text-slate-400" />}
+      <div className="flex flex-col h-[calc(100vh-13rem)] overflow-hidden">
+        {/* Room Header */}
+        <div className="flex items-center justify-between px-2 mb-4">
+          <button 
+            onClick={() => { navigator.clipboard.writeText(activeRoom); setCopied(true); setTimeout(() => setCopied(false), 2000); }} 
+            className="group flex items-center space-x-2 bg-white border border-slate-200/60 px-3 py-2 rounded-2xl shadow-sm hover:shadow-md transition-all active:scale-95"
+          >
+            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+            <span className="text-xs font-black font-mono tracking-widest text-slate-700">{activeRoom}</span>
+            {copied ? <CheckCircle2 size={14} className="text-emerald-500" /> : <Copy size={14} className="text-slate-300 group-hover:text-slate-500" />}
           </button>
-          <button onClick={() => setActiveRoom('')} className="text-xs text-slate-400 hover:text-red-500 font-bold uppercase tracking-widest">离开</button>
+          <button onClick={() => setActiveRoom('')} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
+            <X size={20} />
+          </button>
         </div>
 
-        <div ref={scrollRef} className="flex-1 bg-white border-x border-slate-100 overflow-y-auto p-4 space-y-4" onClick={() => setMenuMsgId(null)}>
-          {filteredMessages.length === 0 && <div className="text-center py-20 text-slate-300 text-sm">暂无可见消息</div>}
-          {filteredMessages.map((m, i) => (
-            <div key={m.id} className="flex flex-col items-start animate-in fade-in slide-in-from-bottom-2 duration-300 relative group">
-              <div className="flex items-end space-x-1 max-w-[95%]">
-                <div className={`rounded-2xl rounded-tl-none px-3 py-2 border shadow-sm overflow-hidden ${m.isBurn ? 'bg-orange-50 border-orange-200 ring-1 ring-orange-100' : 'bg-slate-50 border-slate-100'}`}>
+        {/* Message Area */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-1 space-y-4 pb-4 scroll-smooth" onClick={() => {setMenuMsgId(null); setShowEmoji(false);}}>
+          {filteredMessages.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full space-y-3 opacity-30 select-none">
+              <div className="p-4 bg-slate-100 rounded-full"><PlusCircle size={32} className="text-slate-400" /></div>
+              <p className="text-xs font-bold uppercase tracking-widest">Waiting for messages...</p>
+            </div>
+          )}
+          
+          {filteredMessages.map((m) => (
+            <div key={m.id} className="flex flex-col items-start group animate-in fade-in slide-in-from-bottom-2 duration-500">
+              <div className="flex items-end space-x-2 max-w-[85%] relative">
+                <div className={`relative px-4 py-3 rounded-[20px] rounded-tl-none border shadow-sm transition-all ${
+                  m.isBurn 
+                  ? 'bg-orange-50 border-orange-200 text-orange-900 ring-2 ring-orange-500/10' 
+                  : 'bg-white border-slate-200/80 text-slate-800'
+                }`}>
                   {m.isBurn && (
-                    <div className="flex items-center space-x-1 mb-1 text-[10px] font-bold text-orange-600 uppercase tracking-tighter">
-                      <Flame size={10} fill="currentColor" />
-                      <span>阅后即焚消息</span>
+                    <div className="flex items-center space-x-1 mb-1.5 opacity-70">
+                      <Flame size={10} fill="currentColor" className="text-orange-500" />
+                      <span className="text-[9px] font-black uppercase tracking-tighter">Self-Destruct</span>
                     </div>
                   )}
                   {renderMessageContent(m)}
                 </div>
+                
                 <button 
                   onClick={(e) => { e.stopPropagation(); setMenuMsgId(menuMsgId === m.id ? null : m.id); }}
-                  className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-slate-600 transition-opacity"
+                  className="p-1.5 text-slate-300 hover:text-slate-600 hover:bg-white rounded-lg opacity-0 group-hover:opacity-100 transition-all border border-transparent hover:border-slate-100 shadow-sm"
                 >
                   <MoreVertical size={14} />
                 </button>
-              </div>
-              <span className="text-[9px] font-medium text-slate-400 mt-1 ml-1">{m.time}</span>
 
-              {menuMsgId === m.id && (
-                <div className="absolute left-0 bottom-full mb-1 bg-white border border-slate-200 rounded-xl shadow-xl z-20 flex flex-col p-1 animate-in zoom-in-95 duration-200">
-                  <button onClick={() => deleteForMe(m.id)} className="flex items-center space-x-2 px-3 py-2 text-xs text-slate-600 hover:bg-slate-50 rounded-lg">
-                    <EyeOff size={14} /> <span>仅对自己隐藏</span>
-                  </button>
-                  <button onClick={() => deleteForEveryone(m.id)} className="flex items-center space-x-2 px-3 py-2 text-xs text-red-600 hover:bg-red-50 rounded-lg">
-                    <Trash2 size={14} /> <span>对所有人删除</span>
-                  </button>
-                </div>
-              )}
+                {menuMsgId === m.id && (
+                  <div className="absolute left-full bottom-0 ml-2 bg-white border border-slate-200 rounded-2xl shadow-xl z-20 flex flex-col p-1 animate-in zoom-in-95 duration-200 ring-4 ring-black/5">
+                    <button onClick={() => deleteForMe(m.id)} className="flex items-center space-x-2 px-3 py-2 text-[11px] font-bold text-slate-600 hover:bg-slate-50 rounded-xl">
+                      <EyeOff size={14} /> <span>Hide</span>
+                    </button>
+                    <button onClick={() => deleteForEveryone(m.id)} className="flex items-center space-x-2 px-3 py-2 text-[11px] font-bold text-red-600 hover:bg-red-50 rounded-xl">
+                      <Trash2 size={14} /> <span>Vanish</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+              <span className="text-[10px] font-medium text-slate-400 mt-1.5 ml-1">{m.time}</span>
             </div>
           ))}
         </div>
 
-        {showEmoji && (
-          <div className="absolute bottom-24 left-4 right-4 bg-white border border-slate-200 p-2 rounded-2xl shadow-2xl z-50 grid grid-cols-8 gap-1 animate-in slide-in-from-bottom-4">
-            {EMOJIS.map(e => <button key={e} onClick={() => { setInputMsg(prev => prev + e); setShowEmoji(false); }} className="text-2xl p-1 hover:bg-slate-100 rounded-lg">{e}</button>)}
-          </div>
-        )}
-
-        <div className="bg-white p-3 rounded-b-xl border border-slate-200 shadow-inner space-y-2">
-          {isBurnMode && (
-            <div className="flex items-center space-x-2 px-3 py-1 bg-orange-50 text-orange-600 rounded-lg border border-orange-100 animate-in slide-in-from-bottom-2">
-              <Flame size={14} fill="currentColor" />
-              <span className="text-[10px] font-bold uppercase tracking-wider">阅后即焚模式已开启</span>
+        {/* Floating Input Area */}
+        <div className="mt-auto px-1 pb-2">
+          {showEmoji && (
+            <div className="absolute bottom-24 left-4 right-4 bg-white/95 backdrop-blur-md border border-slate-200 p-3 rounded-3xl shadow-2xl z-50 grid grid-cols-8 gap-2 animate-in slide-in-from-bottom-4">
+              {EMOJIS.map(e => <button key={e} onClick={() => { setInputMsg(prev => prev + e); setShowEmoji(false); }} className="text-xl p-2 hover:bg-slate-100 rounded-xl transition-all active:scale-90">{e}</button>)}
             </div>
           )}
-          <div className="flex items-center space-x-2">
-            <button onClick={() => setShowEmoji(!showEmoji)} className={`p-2 rounded-full transition-colors ${showEmoji ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:bg-slate-100'}`}><Smile size={20} /></button>
-            <button onClick={() => setIsBurnMode(!isBurnMode)} className={`p-2 rounded-full transition-colors ${isBurnMode ? 'bg-orange-100 text-orange-600' : 'text-slate-400 hover:bg-slate-100'}`}><Flame size={20} /></button>
-            <button onClick={() => fileInputRef.current?.click()} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full"><ImageIcon size={20} /></button>
-            <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleFileUpload} />
-            
-            <input
-              type="text"
-              value={inputMsg}
-              onChange={(e) => setInputMsg(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-              placeholder={isBurnMode ? "发送即消失的消息..." : "发送消息..."}
-              className={`flex-1 border-none rounded-full px-4 py-2 text-sm focus:ring-2 outline-none transition-all ${isBurnMode ? 'bg-orange-50 focus:ring-orange-300' : 'bg-slate-50 focus:ring-blue-500'}`}
-            />
-            <button onClick={() => sendMessage()} className={`text-white p-2.5 rounded-full shadow-md active:scale-90 transition-colors ${isBurnMode ? 'bg-orange-600 hover:bg-orange-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
-              <Send size={18} />
-            </button>
+
+          <div className={`relative flex flex-col p-2 rounded-[32px] border transition-all duration-300 ${
+            isBurnMode ? 'bg-orange-600 border-orange-400 shadow-lg shadow-orange-200' : 'bg-white border-slate-200 shadow-xl shadow-slate-200/50'
+          }`}>
+            <div className="flex items-center">
+              <button onClick={() => setShowEmoji(!showEmoji)} className={`p-2.5 rounded-full transition-all ${isBurnMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50'}`}>
+                <Smile size={20} />
+              </button>
+              
+              <button onClick={() => setIsBurnMode(!isBurnMode)} className={`p-2.5 rounded-full transition-all relative ${
+                isBurnMode ? 'bg-white text-orange-600' : 'text-slate-400 hover:text-orange-600 hover:bg-orange-50'
+              }`}>
+                <Flame size={20} fill={isBurnMode ? "currentColor" : "none"} />
+                {isBurnMode && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-orange-400 rounded-full border-2 border-white animate-pulse" />}
+              </button>
+
+              <input
+                type="text"
+                value={inputMsg}
+                onChange={(e) => setInputMsg(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+                placeholder={isBurnMode ? "Ghost message..." : "Say something..."}
+                className={`flex-1 border-none bg-transparent px-3 py-2.5 text-[15px] font-medium focus:ring-0 outline-none transition-colors ${
+                  isBurnMode ? 'text-white placeholder:text-white/50' : 'text-slate-800 placeholder:text-slate-400'
+                }`}
+              />
+              
+              <div className="flex items-center space-x-1 pr-1">
+                <button onClick={() => fileInputRef.current?.click()} className={`p-2.5 rounded-full transition-all ${isBurnMode ? 'text-white/60 hover:text-white' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}>
+                  <ImageIcon size={20} />
+                </button>
+                <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleFileUpload} />
+                
+                <button 
+                  onClick={() => sendMessage()} 
+                  className={`p-3 rounded-full shadow-lg transition-all active:scale-90 ${
+                    isBurnMode ? 'bg-white text-orange-600' : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
+                >
+                  <Send size={18} strokeWidth={2.5} />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
+  // Entrance Screen
   return (
-    <div className="space-y-6">
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 text-center">
-         <div className="mx-auto bg-blue-50 w-16 h-16 rounded-full flex items-center justify-center text-blue-600 mb-2"><PlusCircle size={32} /></div>
-         <h2 className="text-xl font-bold">创建房间</h2>
-         <button onClick={async () => { setLoading(true); const res = await request<any>(apiBase, '/api/create-room'); if (res.code === 200) setActiveRoom(res.roomCode!); setLoading(false); }}
-                 disabled={loading} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold shadow-lg shadow-blue-100 active:scale-95 transition-transform">
-           {loading ? '创建中...' : '开始新聊天'}
+    <div className="space-y-6 max-w-md mx-auto">
+      <div className="bg-white p-8 rounded-[40px] border border-slate-200/60 shadow-xl shadow-slate-200/50 text-center space-y-6">
+         <div className="mx-auto bg-gradient-to-br from-blue-50 to-indigo-100 w-20 h-20 rounded-[30px] flex items-center justify-center text-blue-600 shadow-inner">
+            <PlusCircle size={36} strokeWidth={2.5} />
+         </div>
+         <div>
+           <h2 className="text-2xl font-black text-slate-900 tracking-tight">Create Room</h2>
+           <p className="text-slate-400 text-[13px] font-medium mt-1">Start a fresh encrypted conversation</p>
+         </div>
+         <button 
+           onClick={async () => { setLoading(true); const res = await request<any>(apiBase, '/api/create-room'); if (res.code === 200) setActiveRoom(res.roomCode!); setLoading(false); }}
+           disabled={loading} 
+           className="w-full bg-slate-900 text-white py-5 rounded-3xl font-black text-sm uppercase tracking-widest shadow-2xl shadow-slate-900/20 active:scale-[0.98] transition-all disabled:opacity-50"
+         >
+           {loading ? 'Generating Node...' : 'Secure Launch'}
          </button>
       </div>
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex space-x-2">
-         <input type="text" value={roomCode} onChange={e => setRoomCode(e.target.value.toUpperCase())} placeholder="输入代码进入" className="flex-1 bg-slate-50 border-none rounded-xl px-4 py-3 font-mono font-bold tracking-widest outline-none uppercase" />
-         <button onClick={() => setActiveRoom(roomCode.trim().toUpperCase())} className="bg-slate-800 text-white px-8 rounded-xl font-bold active:scale-95 transition-transform">进入</button>
+
+      <div className="bg-white/60 backdrop-blur-sm p-4 rounded-[32px] border border-white shadow-sm flex items-center space-x-2">
+         <div className="flex-1 bg-white border border-slate-200 rounded-2xl flex items-center px-4">
+            <input 
+              type="text" 
+              value={roomCode} 
+              onChange={e => setRoomCode(e.target.value.toUpperCase())} 
+              placeholder="ENTER ROOM CODE" 
+              className="w-full bg-transparent py-4 text-center font-black font-mono tracking-[0.3em] outline-none text-slate-800 placeholder:text-slate-300" 
+            />
+         </div>
+         <button 
+           onClick={() => setActiveRoom(roomCode.trim().toUpperCase())} 
+           className="bg-blue-600 text-white h-full px-8 rounded-2xl font-black text-[12px] uppercase tracking-widest shadow-lg shadow-blue-200 active:scale-95 transition-all"
+         >
+           Join
+         </button>
       </div>
     </div>
   );
