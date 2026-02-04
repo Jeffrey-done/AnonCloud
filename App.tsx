@@ -4,15 +4,20 @@ import { TabType } from './types';
 import RoomView from './components/RoomView';
 import FriendView from './components/FriendView';
 import SettingsView from './components/SettingsView';
-import { MessageSquare, Users, Settings, Shield } from 'lucide-react';
+import { MessageSquare, Users, Settings, Shield, AlertCircle } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>(TabType.ROOM);
-  // 更新为用户指定的自定义 API 域名，避开默认的 workers.dev 域名以提高在国内的访问稳定性
+  // 用户自定义稳定 API 域名
   const DEFAULT_API = 'https://anon-chat-api.64209310.xyz';
 
   const [apiBase, setApiBase] = useState<string>(() => {
-    return localStorage.getItem('anon_chat_api_base') || DEFAULT_API;
+    const stored = localStorage.getItem('anon_chat_api_base');
+    // 迁移逻辑：如果存储的是旧的被封锁的域名，则强制重置
+    if (stored && stored.includes('workers.dev')) {
+      return DEFAULT_API;
+    }
+    return stored || DEFAULT_API;
   });
 
   const isDefault = apiBase === DEFAULT_API || apiBase === '';
@@ -23,7 +28,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
-      {/* Header - Glassmorphism */}
+      {/* Header */}
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-200/60 sticky top-0 z-50">
         <div className="max-w-2xl mx-auto px-5 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -40,11 +45,11 @@ const App: React.FC = () => {
             {isDefault ? (
               <div className="flex items-center space-x-1.5 text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full text-[10px] font-black border border-emerald-100 shadow-sm shadow-emerald-100/50">
                 <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                <span>SECURE NODE</span>
+                <span>ACTIVE NODE</span>
               </div>
             ) : (
               <div className="flex items-center space-x-1 text-amber-600 bg-amber-50 px-3 py-1.5 rounded-full text-[10px] font-black border border-amber-100">
-                <span>CUSTOM API</span>
+                <span>CUSTOM PROXY</span>
               </div>
             )}
           </div>
@@ -60,7 +65,7 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Bottom Nav - Floating Style */}
+      {/* Bottom Nav */}
       <nav className="fixed bottom-6 left-4 right-4 z-50">
         <div className="max-w-md mx-auto bg-slate-900/95 backdrop-blur-lg border border-white/10 rounded-3xl shadow-2xl shadow-slate-900/40 px-2 py-2">
           <div className="flex items-center justify-between">

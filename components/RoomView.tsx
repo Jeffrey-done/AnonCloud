@@ -2,9 +2,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Message, MessageType } from '../types';
 import { request } from '../services/api';
-import { Send, PlusCircle, Copy, CheckCircle2, Image as ImageIcon, Smile, X, Maximize2 } from 'lucide-react';
+import { Send, PlusCircle, Copy, CheckCircle2, Image as ImageIcon, Smile, X, Maximize2, AlertCircle, Loader2 } from 'lucide-react';
 
-const EMOJIS = ['😀', '😂', '😍', '🤔', '😎', '🙄', '🔥', '✨', '👍', '🙏', '❤️', '🎉', '👋', '👀', '🌚', '🤡'];
+const EMOJIS = ['😀', '😂', '😍', '🤔', '😎', '🙄', '🔥', '✨', '👍', '🙏', '❤️', '🎉', '👋', '👀', '🌚', ' clowns'];
 
 const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [roomCode, setRoomCode] = useState<string>(() => localStorage.getItem('anon_last_room_input') || '');
@@ -15,6 +15,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -41,8 +42,11 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     const res = await request<Message[]>(apiBase, `/api/get-msg?roomCode=${activeRoom}`);
     if (res.code === 200 && res.data) {
       setMessages(res.data);
+      setError(null);
     } else if (res.code === 404) {
       setActiveRoom('');
+    } else if (res.code !== 200) {
+      setError(res.msg || '无法连接到服务器');
     }
   };
 
@@ -50,15 +54,20 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     const payload = content !== undefined ? content : inputMsg;
     if (!payload.trim() || !activeRoom) return;
     
+    setLoading(true);
     const res = await request<any>(apiBase, '/api/send-msg', 'POST', { 
       roomCode: activeRoom, 
       msg: payload, 
       type
     });
+    setLoading(false);
     
     if (res.code === 200) {
       if (content === undefined) setInputMsg('');
+      setError(null);
       fetchMessages();
+    } else {
+      setError(res.msg || '发送失败');
     }
   };
 
@@ -119,22 +128,31 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           </div>
         )}
 
-        <div className="flex items-center justify-between px-2 mb-4">
-          <button 
-            onClick={() => { navigator.clipboard.writeText(activeRoom); setCopied(true); setTimeout(() => setCopied(false), 2000); }} 
-            className="group flex items-center space-x-2 bg-white border border-slate-200/60 px-3 py-2 rounded-2xl shadow-sm hover:shadow-md transition-all active:scale-95"
-          >
-            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-            <span className="text-xs font-black font-mono tracking-widest text-slate-700">{activeRoom}</span>
-            {copied ? <CheckCircle2 size={14} className="text-emerald-500" /> : <Copy size={14} className="text-slate-300 group-hover:text-slate-500" />}
-          </button>
-          <button onClick={() => setActiveRoom('')} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
-            <X size={20} />
-          </button>
+        <div className="flex flex-col mb-4 space-y-2">
+          <div className="flex items-center justify-between px-2">
+            <button 
+              onClick={() => { navigator.clipboard.writeText(activeRoom); setCopied(true); setTimeout(() => setCopied(false), 2000); }} 
+              className="group flex items-center space-x-2 bg-white border border-slate-200/60 px-3 py-2 rounded-2xl shadow-sm hover:shadow-md transition-all active:scale-95"
+            >
+              <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+              <span className="text-xs font-black font-mono tracking-widest text-slate-700">{activeRoom}</span>
+              {copied ? <CheckCircle2 size={14} className="text-emerald-500" /> : <Copy size={14} className="text-slate-300 group-hover:text-slate-500" />}
+            </button>
+            <button onClick={() => setActiveRoom('')} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
+              <X size={20} />
+            </button>
+          </div>
+          
+          {error && (
+            <div className="mx-2 p-2 bg-red-50 border border-red-100 rounded-xl flex items-center space-x-2 text-red-600 animate-in slide-in-from-top-2">
+              <AlertCircle size={14} />
+              <span className="text-[11px] font-bold uppercase tracking-tight">{error}</span>
+            </div>
+          )}
         </div>
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-1 space-y-4 pb-4 scroll-smooth" onClick={() => {setShowEmoji(false);}}>
-          {messages.length === 0 && (
+          {messages.length === 0 && !error && (
             <div className="flex flex-col items-center justify-center h-full space-y-3 opacity-30 select-none">
               <div className="p-4 bg-slate-100 rounded-full"><PlusCircle size={32} className="text-slate-400" /></div>
               <p className="text-xs font-bold uppercase tracking-widest">Waiting for messages...</p>
@@ -183,9 +201,10 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
                 
                 <button 
                   onClick={() => sendMessage()} 
-                  className="p-3 rounded-full shadow-lg transition-all active:scale-90 bg-blue-600 text-white hover:bg-blue-700"
+                  disabled={loading || !inputMsg.trim()}
+                  className="p-3 rounded-full shadow-lg transition-all active:scale-90 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
                 >
-                  <Send size={18} strokeWidth={2.5} />
+                  {loading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} strokeWidth={2.5} />}
                 </button>
               </div>
             </div>
@@ -205,12 +224,21 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
            <h2 className="text-2xl font-black text-slate-900 tracking-tight">Create Room</h2>
            <p className="text-slate-400 text-[13px] font-medium mt-1">Start a fresh encrypted conversation</p>
          </div>
+         
+         {error && (
+            <div className="p-3 bg-red-50 border border-red-100 rounded-2xl flex items-center space-x-2 text-red-600 text-left">
+              <AlertCircle size={18} className="flex-shrink-0" />
+              <p className="text-[11px] font-bold leading-tight">{error}</p>
+            </div>
+         )}
+
          <button 
-           onClick={async () => { setLoading(true); const res = await request<any>(apiBase, '/api/create-room'); if (res.code === 200) setActiveRoom(res.roomCode!); setLoading(false); }}
+           onClick={async () => { setError(null); setLoading(true); const res = await request<any>(apiBase, '/api/create-room'); if (res.code === 200) setActiveRoom(res.roomCode!); else setError(res.msg || '无法连接节点'); setLoading(false); }}
            disabled={loading} 
-           className="w-full bg-slate-900 text-white py-5 rounded-3xl font-black text-sm uppercase tracking-widest shadow-2xl shadow-slate-900/20 active:scale-[0.98] transition-all disabled:opacity-50"
+           className="w-full bg-slate-900 text-white py-5 rounded-3xl font-black text-sm uppercase tracking-widest shadow-2xl shadow-slate-900/20 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center space-x-2"
          >
-           {loading ? 'Generating Node...' : 'Secure Launch'}
+           {loading && <Loader2 size={18} className="animate-spin" />}
+           <span>{loading ? 'DEPLOYING...' : 'Secure Launch'}</span>
          </button>
       </div>
 
