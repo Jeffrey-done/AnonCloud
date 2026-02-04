@@ -65,25 +65,28 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   };
 
   const renderMessageContent = (m: Message) => {
-    const isImage = m.type === 'image' || m.content.startsWith('data:image/');
-    const isVideo = m.type === 'video' || m.content.startsWith('data:video/');
+    const content = (m.content || '').trim();
+    const isImage = m.type === 'image' || content.startsWith('data:image/');
+    const isVideo = m.type === 'video' || content.startsWith('data:video/');
 
     if (isImage) {
       return (
-        <img 
-          src={m.content} 
-          className="rounded-lg max-w-[200px] max-h-[280px] object-cover shadow-sm block cursor-zoom-in hover:opacity-95 transition-opacity" 
-          alt="image" 
-          onClick={() => window.open(m.content)} 
-        />
+        <div className="max-w-full overflow-hidden">
+          <img 
+            src={content} 
+            className="rounded-xl max-w-[min(100%,240px)] max-h-[300px] object-contain shadow-md cursor-zoom-in" 
+            alt="image" 
+            onClick={() => window.open(content)} 
+          />
+        </div>
       );
     }
     if (isVideo) {
       return (
         <video 
-          src={m.content} 
+          src={content} 
           controls 
-          className="rounded-lg max-w-[200px] max-h-[280px] shadow-sm block" 
+          className="rounded-xl max-w-[min(100%,240px)] max-h-[300px] shadow-md" 
         />
       );
     }
@@ -106,7 +109,7 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
             const isMe = m.sender === myCode;
             return (
               <div key={m.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} animate-in fade-in slide-in-from-bottom-2`}>
-                <div className={`max-w-[85%] rounded-2xl p-2.5 shadow-sm border ${isMe ? 'bg-blue-600 border-blue-500 rounded-tr-none text-white' : 'bg-slate-50 border-slate-100 rounded-tl-none text-slate-800'} overflow-hidden`}>
+                <div className={`max-w-[90%] rounded-2xl p-2 shadow-sm border ${isMe ? 'bg-blue-600 border-blue-500 rounded-tr-none text-white' : 'bg-slate-50 border-slate-100 rounded-tl-none text-slate-800'} overflow-hidden`}>
                   {renderMessageContent(m)}
                 </div>
                 <div className={`flex items-center mt-1 space-x-1 ${isMe ? 'flex-row-reverse space-x-reverse' : ''}`}>

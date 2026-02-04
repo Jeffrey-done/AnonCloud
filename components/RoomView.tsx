@@ -77,25 +77,29 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   };
 
   const renderMessageContent = (m: Message) => {
-    const isImage = m.type === 'image' || m.content.startsWith('data:image/');
-    const isVideo = m.type === 'video' || m.content.startsWith('data:video/');
+    // 增强识别逻辑：使用 trim() 去掉潜在空格，并进行多重校验
+    const content = (m.content || '').trim();
+    const isImage = m.type === 'image' || content.startsWith('data:image/');
+    const isVideo = m.type === 'video' || content.startsWith('data:video/');
 
     if (isImage) {
       return (
-        <img 
-          src={m.content} 
-          className="rounded-lg max-w-[240px] max-h-[320px] object-cover shadow-sm block cursor-zoom-in hover:opacity-95 transition-opacity" 
-          alt="image" 
-          onClick={() => window.open(m.content)} 
-        />
+        <div className="max-w-full overflow-hidden">
+          <img 
+            src={content} 
+            className="rounded-xl max-w-[min(100%,260px)] max-h-[300px] object-contain shadow-md cursor-zoom-in hover:scale-[1.02] transition-transform" 
+            alt="image" 
+            onClick={() => window.open(content)} 
+          />
+        </div>
       );
     }
     if (isVideo) {
       return (
         <video 
-          src={m.content} 
+          src={content} 
           controls 
-          className="rounded-lg max-w-[240px] max-h-[320px] shadow-sm block" 
+          className="rounded-xl max-w-[min(100%,260px)] max-h-[300px] shadow-md" 
         />
       );
     }
@@ -111,16 +115,16 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
             <span className="text-xs font-mono font-bold text-blue-600">{activeRoom}</span>
             {copied ? <CheckCircle2 size={12} className="text-green-500" /> : <Copy size={12} className="text-slate-400" />}
           </button>
-          <button onClick={() => setActiveRoom('')} className="text-xs text-slate-400 hover:text-red-500 font-bold uppercase">离开</button>
+          <button onClick={() => setActiveRoom('')} className="text-xs text-slate-400 hover:text-red-500 font-bold uppercase tracking-widest">离开</button>
         </div>
 
         <div ref={scrollRef} className="flex-1 bg-white border-x border-slate-100 overflow-y-auto p-4 space-y-4">
           {messages.map((m, i) => (
             <div key={i} className="flex flex-col items-start animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <div className="bg-slate-50 rounded-2xl rounded-tl-none px-3.5 py-2.5 border border-slate-100 shadow-sm max-w-[90%] overflow-hidden">
+              <div className="bg-slate-50 rounded-2xl rounded-tl-none px-3 py-2 border border-slate-100 shadow-sm max-w-[95%] overflow-hidden">
                 {renderMessageContent(m)}
               </div>
-              <span className="text-[10px] font-medium text-slate-400 mt-1 ml-1">{m.time}</span>
+              <span className="text-[9px] font-medium text-slate-400 mt-1 ml-1">{m.time}</span>
             </div>
           ))}
         </div>
