@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Message, MessageType } from '../types';
 import { request } from '../services/api';
-import { Send, PlusCircle, Copy, CheckCircle2, Image as ImageIcon, Smile, MoreVertical, Trash2, EyeOff, Flame, X, Maximize2 } from 'lucide-react';
+import { Send, PlusCircle, Copy, CheckCircle2, Image as ImageIcon, Smile, MoreVertical, Trash2, EyeOff, X, Maximize2 } from 'lucide-react';
 
 const EMOJIS = ['😀', '😂', '😍', '🤔', '😎', '🙄', '🔥', '✨', '👍', '🙏', '❤️', '🎉', '👋', '👀', '🌚', '🤡'];
 
@@ -12,7 +12,6 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMsg, setInputMsg] = useState<string>('');
   const [showEmoji, setShowEmoji] = useState(false);
-  const [isBurnMode, setIsBurnMode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [menuMsgId, setMenuMsgId] = useState<string | null>(null);
@@ -36,17 +35,6 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
       localStorage.setItem(`anon_deleted_room_${activeRoom}`, JSON.stringify(localDeletedIds));
     }
   }, [localDeletedIds, activeRoom]);
-
-  // 阅后即焚本地自动清理逻辑
-  useEffect(() => {
-    const burnableMessages = messages.filter(m => m.isBurn && !localDeletedIds.includes(m.id));
-    const timers = burnableMessages.map(m => {
-      return setTimeout(() => {
-        setLocalDeletedIds(prev => [...prev, m.id]);
-      }, 15000); // 15秒后强制本地消失
-    });
-    return () => timers.forEach(clearTimeout);
-  }, [messages, localDeletedIds]);
 
   useEffect(() => {
     let interval: any;
@@ -77,19 +65,16 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     const res = await request<any>(apiBase, '/api/send-msg', 'POST', { 
       roomCode: activeRoom, 
       msg: payload, 
-      type,
-      isBurn: isBurnMode
+      type
     });
     
     if (res.code === 200) {
       if (content === undefined) setInputMsg('');
-      setIsBurnMode(false);
       fetchMessages();
     }
   };
 
   const deleteForEveryone = async (msgId: string) => {
-    // 立即在本地隐藏
     setLocalDeletedIds(prev => [...prev, msgId]);
     setMenuMsgId(null);
     await request<any>(apiBase, '/api/delete-room-msg', 'POST', { roomCode: activeRoom, messageId: msgId });
@@ -184,17 +169,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           {filteredMessages.map((m) => (
             <div key={m.id} className="flex flex-col items-start group animate-in fade-in slide-in-from-bottom-2 duration-500 overflow-visible transition-all">
               <div className="flex items-end space-x-2 max-w-[85%] relative">
-                <div className={`relative px-4 py-3 rounded-[20px] rounded-tl-none border shadow-sm transition-all overflow-hidden ${
-                  m.isBurn 
-                  ? 'bg-orange-50 border-orange-200 text-orange-900 ring-2 ring-orange-500/10' 
-                  : 'bg-white border-slate-200/80 text-slate-800'
-                }`}>
-                  {m.isBurn && (
-                    <div className="flex items-center space-x-1 mb-1.5 opacity-70">
-                      <Flame size={10} fill="currentColor" className="text-orange-500" />
-                      <span className="text-[9px] font-black uppercase tracking-tighter animate-pulse">Destructing in 15s...</span>
-                    </div>
-                  )}
+                <div className="relative px-4 py-3 rounded-[20px] rounded-tl-none border shadow-sm transition-all overflow-hidden bg-white border-slate-200/80 text-slate-800">
                   {renderMessageContent(m)}
                 </div>
                 
@@ -228,43 +203,30 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
             </div>
           )}
 
-          <div className={`relative flex flex-col p-2 rounded-[32px] border transition-all duration-300 ${
-            isBurnMode ? 'bg-orange-600 border-orange-400 shadow-lg shadow-orange-200' : 'bg-white border-slate-200 shadow-xl shadow-slate-200/50'
-          }`}>
+          <div className="relative flex flex-col p-2 rounded-[32px] border transition-all duration-300 bg-white border-slate-200 shadow-xl shadow-slate-200/50">
             <div className="flex items-center">
-              <button onClick={() => setShowEmoji(!showEmoji)} className={`p-2.5 rounded-full transition-all ${isBurnMode ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50'}`}>
+              <button onClick={() => setShowEmoji(!showEmoji)} className="p-2.5 rounded-full transition-all text-slate-400 hover:text-blue-600 hover:bg-blue-50">
                 <Smile size={20} />
               </button>
               
-              <button onClick={() => setIsBurnMode(!isBurnMode)} className={`p-2.5 rounded-full transition-all relative ${
-                isBurnMode ? 'bg-white text-orange-600' : 'text-slate-400 hover:text-orange-600 hover:bg-orange-50'
-              }`}>
-                <Flame size={20} fill={isBurnMode ? "currentColor" : "none"} />
-                {isBurnMode && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-orange-400 rounded-full border-2 border-white animate-pulse" />}
-              </button>
-
               <input
                 type="text"
                 value={inputMsg}
                 onChange={(e) => setInputMsg(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-                placeholder={isBurnMode ? "Ghost message..." : "Say something..."}
-                className={`flex-1 border-none bg-transparent px-3 py-2.5 text-[15px] font-medium focus:ring-0 outline-none transition-colors ${
-                  isBurnMode ? 'text-white placeholder:text-white/50' : 'text-slate-800 placeholder:text-slate-400'
-                }`}
+                placeholder="Say something..."
+                className="flex-1 border-none bg-transparent px-3 py-2.5 text-[15px] font-medium focus:ring-0 outline-none transition-colors text-slate-800 placeholder:text-slate-400"
               />
               
               <div className="flex items-center space-x-1 pr-1">
-                <button onClick={() => fileInputRef.current?.click()} className={`p-2.5 rounded-full transition-all ${isBurnMode ? 'text-white/60 hover:text-white' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}>
+                <button onClick={() => fileInputRef.current?.click()} className="p-2.5 rounded-full transition-all text-slate-400 hover:text-slate-600 hover:bg-slate-100">
                   <ImageIcon size={20} />
                 </button>
                 <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleFileUpload} />
                 
                 <button 
                   onClick={() => sendMessage()} 
-                  className={`p-3 rounded-full shadow-lg transition-all active:scale-90 ${
-                    isBurnMode ? 'bg-white text-orange-600' : 'bg-blue-600 text-white hover:bg-blue-700'
-                  }`}
+                  className="p-3 rounded-full shadow-lg transition-all active:scale-90 bg-blue-600 text-white hover:bg-blue-700"
                 >
                   <Send size={18} strokeWidth={2.5} />
                 </button>

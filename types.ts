@@ -8,7 +8,6 @@ export interface Message {
   type: MessageType;
   content: string; // 文本内容或 Base64 媒体数据
   read: boolean;
-  isBurn?: boolean; // 是否为阅后即焚消息
 }
 
 export interface ApiResponse<T> {
