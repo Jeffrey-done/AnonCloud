@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Message, MessageType } from '../types';
 import { request } from '../services/api';
-import { Send, UserPlus, Fingerprint, Lock, Copy, CheckCircle2, Check, Image as ImageIcon, Smile, MoreVertical, Trash2, EyeOff } from 'lucide-react';
+import { Send, UserPlus, Fingerprint, Lock, Copy, CheckCircle2, Check, Image as ImageIcon, Smile, MoreVertical, Trash2, EyeOff, Flame } from 'lucide-react';
 
 const EMOJIS = ['❤️', '✨', '🔥', '😂', '😭', '🤡', '💀', '💯', '👌', '👀', '🤫', '🌹'];
 
@@ -13,10 +13,10 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMsg, setInputMsg] = useState<string>('');
   const [showEmoji, setShowEmoji] = useState(false);
+  const [isBurnMode, setIsBurnMode] = useState(false);
   const [copied, setCopied] = useState(false);
   const [menuMsgId, setMenuMsgId] = useState<string | null>(null);
 
-  // 本地删除列表
   const [localDeletedIds, setLocalDeletedIds] = useState<string[]>(() => {
     return JSON.parse(localStorage.getItem(`anon_deleted_friend_${myCode}_${targetCode}`) || '[]');
   });
@@ -43,7 +43,7 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     let interval: any;
     if (isPaired && myCode && targetCode) {
       fetchMessages();
-      interval = setInterval(fetchMessages, 3000);
+      interval = setInterval(fetchMessages, 3500);
     }
     return () => clearInterval(interval);
   }, [isPaired, myCode, targetCode]);
@@ -60,9 +60,16 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const sendMessage = async (content?: string, type: MessageType = 'text') => {
     const payload = content !== undefined ? content : inputMsg;
     if (!payload.trim() || !isPaired) return;
-    const res = await request<any>(apiBase, '/api/send-friend-msg', 'POST', { myCode, targetCode, msg: payload, type });
+    const res = await request<any>(apiBase, '/api/send-friend-msg', 'POST', { 
+      myCode, 
+      targetCode, 
+      msg: payload, 
+      type,
+      isBurn: isBurnMode
+    });
     if (res.code === 200) {
       if (content === undefined) setInputMsg('');
+      setIsBurnMode(false);
       fetchMessages();
     }
   };
@@ -140,7 +147,13 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
                         <MoreVertical size={14} />
                      </button>
                   )}
-                  <div className={`rounded-2xl p-2 shadow-sm border ${isMe ? 'bg-blue-600 border-blue-500 rounded-tr-none text-white' : 'bg-slate-50 border-slate-100 rounded-tl-none text-slate-800'} overflow-hidden relative`}>
+                  <div className={`rounded-2xl p-2 shadow-sm border ${isMe ? (isBurnMode && isMe ? 'bg-orange-600 border-orange-500 rounded-tr-none text-white' : 'bg-blue-600 border-blue-500 rounded-tr-none text-white') : (m.isBurn ? 'bg-orange-50 border-orange-200 text-orange-800 rounded-tl-none ring-1 ring-orange-100' : 'bg-slate-50 border-slate-100 rounded-tl-none text-slate-800')} overflow-hidden relative`}>
+                    {m.isBurn && (
+                      <div className={`flex items-center space-x-1 mb-1 text-[9px] font-bold uppercase ${isMe ? 'text-orange-200' : 'text-orange-600'}`}>
+                        <Flame size={10} fill="currentColor" />
+                        <span>阅后即焚</span>
+                      </div>
+                    )}
                     {renderMessageContent(m)}
                   </div>
                   {isMe && (
@@ -173,17 +186,26 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
         </div>
 
         {showEmoji && (
-          <div className="absolute bottom-20 left-4 right-4 bg-white border border-slate-200 p-3 rounded-2xl shadow-2xl z-50 grid grid-cols-6 gap-2">
+          <div className="absolute bottom-24 left-4 right-4 bg-white border border-slate-200 p-3 rounded-2xl shadow-2xl z-50 grid grid-cols-6 gap-2">
             {EMOJIS.map(e => <button key={e} onClick={() => { setInputMsg(p => p + e); setShowEmoji(false); }} className="text-3xl p-1 hover:bg-slate-50 rounded-lg">{e}</button>)}
           </div>
         )}
 
-        <div className="bg-white p-3 rounded-b-xl border border-slate-200 flex items-center space-x-2 shadow-inner">
-          <button onClick={() => setShowEmoji(!showEmoji)} className="text-slate-400 hover:text-blue-600 transition-colors"><Smile size={20} /></button>
-          <button onClick={() => fileInputRef.current?.click()} className="text-slate-400 hover:text-blue-600"><ImageIcon size={20} /></button>
-          <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleFileUpload} />
-          <input type="text" value={inputMsg} onChange={e => setInputMsg(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} placeholder="私密发送..." className="flex-1 bg-slate-50 border-none rounded-full px-4 py-2 text-sm outline-none" />
-          <button onClick={() => sendMessage()} className="bg-blue-600 text-white p-2.5 rounded-full hover:bg-blue-700 shadow-md"><Send size={18} /></button>
+        <div className="bg-white p-3 rounded-b-xl border border-slate-200 shadow-inner space-y-2">
+          {isBurnMode && (
+            <div className="flex items-center space-x-2 px-3 py-1 bg-orange-50 text-orange-600 rounded-lg border border-orange-100 animate-in slide-in-from-bottom-2">
+              <Flame size={14} fill="currentColor" />
+              <span className="text-[10px] font-bold uppercase tracking-wider">阅后即焚模式激活</span>
+            </div>
+          )}
+          <div className="flex items-center space-x-2">
+            <button onClick={() => setShowEmoji(!showEmoji)} className={`p-2 rounded-full transition-colors ${showEmoji ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:bg-slate-100'}`}><Smile size={20} /></button>
+            <button onClick={() => setIsBurnMode(!isBurnMode)} className={`p-2 rounded-full transition-colors ${isBurnMode ? 'bg-orange-100 text-orange-600' : 'text-slate-400 hover:bg-slate-100'}`}><Flame size={20} /></button>
+            <button onClick={() => fileInputRef.current?.click()} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full"><ImageIcon size={20} /></button>
+            <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleFileUpload} />
+            <input type="text" value={inputMsg} onChange={e => setInputMsg(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} placeholder={isBurnMode ? "私密发送并销毁..." : "私密发送..."} className={`flex-1 rounded-full px-4 py-2 text-sm outline-none transition-all ${isBurnMode ? 'bg-orange-50 focus:ring-2 focus:ring-orange-300' : 'bg-slate-50 focus:ring-2 focus:ring-blue-500'}`} />
+            <button onClick={() => sendMessage()} className={`text-white p-2.5 rounded-full shadow-md transition-colors ${isBurnMode ? 'bg-orange-600 hover:bg-orange-700' : 'bg-blue-600 hover:bg-blue-700'}`}><Send size={18} /></button>
+          </div>
         </div>
       </div>
     );

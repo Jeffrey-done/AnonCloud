@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Message, MessageType } from '../types';
 import { request } from '../services/api';
-import { Send, PlusCircle, Copy, CheckCircle2, Image as ImageIcon, Smile, MoreVertical, Trash2, EyeOff } from 'lucide-react';
+import { Send, PlusCircle, Copy, CheckCircle2, Image as ImageIcon, Smile, MoreVertical, Trash2, EyeOff, Flame } from 'lucide-react';
 
 const EMOJIS = ['😀', '😂', '😍', '🤔', '😎', '🙄', '🔥', '✨', '👍', '🙏', '❤️', '🎉', '👋', '👀', '🌚', '🤡'];
 
@@ -12,11 +12,11 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMsg, setInputMsg] = useState<string>('');
   const [showEmoji, setShowEmoji] = useState(false);
+  const [isBurnMode, setIsBurnMode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [menuMsgId, setMenuMsgId] = useState<string | null>(null);
   
-  // 本地删除列表
   const [localDeletedIds, setLocalDeletedIds] = useState<string[]>(() => {
     return JSON.parse(localStorage.getItem(`anon_deleted_room_${activeRoom}`) || '[]');
   });
@@ -38,7 +38,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     let interval: any;
     if (activeRoom) {
       fetchMessages();
-      interval = setInterval(fetchMessages, 3000);
+      interval = setInterval(fetchMessages, 3500);
     }
     return () => clearInterval(interval);
   }, [activeRoom, apiBase]);
@@ -63,16 +63,17 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     const res = await request<any>(apiBase, '/api/send-msg', 'POST', { 
       roomCode: activeRoom, 
       msg: payload, 
-      type 
+      type,
+      isBurn: isBurnMode
     });
     
     if (res.code === 200) {
       if (content === undefined) setInputMsg('');
+      setIsBurnMode(false);
       fetchMessages();
     }
   };
 
-  // 双向删除 (对所有人)
   const deleteForEveryone = async (msgId: string) => {
     const res = await request<any>(apiBase, '/api/delete-room-msg', 'POST', { roomCode: activeRoom, messageId: msgId });
     if (res.code === 200) {
@@ -81,7 +82,6 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     }
   };
 
-  // 单向删除 (仅本地)
   const deleteForMe = (msgId: string) => {
     setLocalDeletedIds(prev => [...prev, msgId]);
     setMenuMsgId(null);
@@ -126,11 +126,10 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   };
 
   if (activeRoom) {
-    // 过滤掉本地删除的消息
     const filteredMessages = messages.filter(m => !localDeletedIds.includes(m.id));
 
     return (
-      <div className="flex flex-col h-[calc(100vh-13rem)] relative">
+      <div className="flex flex-col h-[calc(100vh-13rem)] relative animate-in fade-in duration-300">
         <div className="bg-white p-3 rounded-t-xl border border-slate-200 flex items-center justify-between shadow-sm">
           <button onClick={() => { navigator.clipboard.writeText(activeRoom); setCopied(true); setTimeout(() => setCopied(false), 2000); }} 
                   className="flex items-center space-x-1.5 bg-slate-50 px-2.5 py-1 rounded-md border border-slate-200">
@@ -145,7 +144,13 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           {filteredMessages.map((m, i) => (
             <div key={m.id} className="flex flex-col items-start animate-in fade-in slide-in-from-bottom-2 duration-300 relative group">
               <div className="flex items-end space-x-1 max-w-[95%]">
-                <div className="bg-slate-50 rounded-2xl rounded-tl-none px-3 py-2 border border-slate-100 shadow-sm overflow-hidden">
+                <div className={`rounded-2xl rounded-tl-none px-3 py-2 border shadow-sm overflow-hidden ${m.isBurn ? 'bg-orange-50 border-orange-200 ring-1 ring-orange-100' : 'bg-slate-50 border-slate-100'}`}>
+                  {m.isBurn && (
+                    <div className="flex items-center space-x-1 mb-1 text-[10px] font-bold text-orange-600 uppercase tracking-tighter">
+                      <Flame size={10} fill="currentColor" />
+                      <span>阅后即焚消息</span>
+                    </div>
+                  )}
                   {renderMessageContent(m)}
                 </div>
                 <button 
@@ -172,14 +177,21 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
         </div>
 
         {showEmoji && (
-          <div className="absolute bottom-20 left-4 right-4 bg-white border border-slate-200 p-2 rounded-2xl shadow-2xl z-50 grid grid-cols-8 gap-1 animate-in slide-in-from-bottom-4">
+          <div className="absolute bottom-24 left-4 right-4 bg-white border border-slate-200 p-2 rounded-2xl shadow-2xl z-50 grid grid-cols-8 gap-1 animate-in slide-in-from-bottom-4">
             {EMOJIS.map(e => <button key={e} onClick={() => { setInputMsg(prev => prev + e); setShowEmoji(false); }} className="text-2xl p-1 hover:bg-slate-100 rounded-lg">{e}</button>)}
           </div>
         )}
 
         <div className="bg-white p-3 rounded-b-xl border border-slate-200 shadow-inner space-y-2">
+          {isBurnMode && (
+            <div className="flex items-center space-x-2 px-3 py-1 bg-orange-50 text-orange-600 rounded-lg border border-orange-100 animate-in slide-in-from-bottom-2">
+              <Flame size={14} fill="currentColor" />
+              <span className="text-[10px] font-bold uppercase tracking-wider">阅后即焚模式已开启</span>
+            </div>
+          )}
           <div className="flex items-center space-x-2">
             <button onClick={() => setShowEmoji(!showEmoji)} className={`p-2 rounded-full transition-colors ${showEmoji ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:bg-slate-100'}`}><Smile size={20} /></button>
+            <button onClick={() => setIsBurnMode(!isBurnMode)} className={`p-2 rounded-full transition-colors ${isBurnMode ? 'bg-orange-100 text-orange-600' : 'text-slate-400 hover:bg-slate-100'}`}><Flame size={20} /></button>
             <button onClick={() => fileInputRef.current?.click()} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full"><ImageIcon size={20} /></button>
             <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleFileUpload} />
             
@@ -188,10 +200,12 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
               value={inputMsg}
               onChange={(e) => setInputMsg(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-              placeholder="发送消息..."
-              className="flex-1 bg-slate-50 border-none rounded-full px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              placeholder={isBurnMode ? "发送即消失的消息..." : "发送消息..."}
+              className={`flex-1 border-none rounded-full px-4 py-2 text-sm focus:ring-2 outline-none transition-all ${isBurnMode ? 'bg-orange-50 focus:ring-orange-300' : 'bg-slate-50 focus:ring-blue-500'}`}
             />
-            <button onClick={() => sendMessage()} className="bg-blue-600 text-white p-2.5 rounded-full hover:bg-blue-700 shadow-md active:scale-90"><Send size={18} /></button>
+            <button onClick={() => sendMessage()} className={`text-white p-2.5 rounded-full shadow-md active:scale-90 transition-colors ${isBurnMode ? 'bg-orange-600 hover:bg-orange-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+              <Send size={18} />
+            </button>
           </div>
         </div>
       </div>

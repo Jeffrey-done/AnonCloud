@@ -35,16 +35,14 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
 
   // --- 路由处理 ---
 
-  // 1. 创建房间
   if (path === "/api/create-room") {
     const code = generateCode(6);
     await kv.put(`room:msg:${code}`, "[]", { expirationTtl: 43200 });
     return new Response(JSON.stringify({ code: 200, roomCode: code }), { headers: corsHeaders });
   }
 
-  // 2. 发送房间消息
   if (path === "/api/send-msg") {
-    const { roomCode, msg, type = 'text' } = await request.json();
+    const { roomCode, msg, type = 'text', isBurn = false } = await request.json();
     const key = `room:msg:${roomCode}`;
     const rawData = await kv.get(key);
     if (rawData === null) return new Response(JSON.stringify({ code: 404, msg: "房间不存在" }), { headers: corsHeaders });
@@ -56,40 +54,46 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
       time: new Date().toLocaleTimeString('zh-CN', { hour12: false }), 
       type,
       content: msg,
-      read: false 
+      read: false,
+      isBurn
     });
     if (data.length > 30) data.shift(); 
     await kv.put(key, JSON.stringify(data), { expirationTtl: 43200 });
     return new Response(JSON.stringify({ code: 200 }), { headers: corsHeaders });
   }
 
-  // 3. 获取房间消息
   if (path === "/api/get-msg") {
     const code = url.searchParams.get("roomCode");
-    const data = await kv.get(`room:msg:${code}`);
-    return new Response(JSON.stringify({ code: 200, data: JSON.parse(data || "[]") }), { headers: corsHeaders });
+    const key = `room:msg:${code}`;
+    const rawData = await kv.get(key);
+    const data = JSON.parse(rawData || "[]");
+    
+    // 逻辑：识别并删除阅后即焚消息
+    const hasBurn = data.some((m: any) => m.isBurn);
+    if (hasBurn) {
+      const remaining = data.filter((m: any) => !m.isBurn);
+      await kv.put(key, JSON.stringify(remaining), { expirationTtl: 43200 });
+    }
+
+    return new Response(JSON.stringify({ code: 200, data }), { headers: corsHeaders });
   }
 
-  // 4. 删除房间消息 (双向删除)
   if (path === "/api/delete-room-msg") {
     const { roomCode, messageId } = await request.json();
     const key = `room:msg:${roomCode}`;
     const rawData = await kv.get(key);
     if (!rawData) return new Response(JSON.stringify({ code: 404 }), { headers: corsHeaders });
-    
     const data = JSON.parse(rawData).filter((m: any) => m.id !== messageId);
     await kv.put(key, JSON.stringify(data), { expirationTtl: 43200 });
     return new Response(JSON.stringify({ code: 200 }), { headers: corsHeaders });
   }
 
-  // 5. 生成私聊码
   if (path === "/api/create-friend-code") {
     const code = generateCode(8);
     await kv.put(`friend:reg:${code}`, "1", { expirationTtl: 604800 }); 
     return new Response(JSON.stringify({ code: 200, friendCode: code }), { headers: corsHeaders });
   }
 
-  // 6. 建立好友关系
   if (path === "/api/add-friend") {
     const { myCode, targetCode } = await request.json();
     const relKey = [myCode, targetCode].sort().join("_");
@@ -97,9 +101,8 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
     return new Response(JSON.stringify({ code: 200, msg: "连接成功" }), { headers: corsHeaders });
   }
 
-  // 7. 发送私聊消息
   if (path === "/api/send-friend-msg") {
-    const { myCode, targetCode, msg, type = 'text' } = await request.json();
+    const { myCode, targetCode, msg, type = 'text', isBurn = false } = await request.json();
     const relKey = [myCode, targetCode].sort().join("_");
     const msgKey = `friend:msg:${relKey}`;
     const data = JSON.parse(await kv.get(msgKey) || "[]");
@@ -109,21 +112,23 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
       time: new Date().toLocaleTimeString('zh-CN', { hour12: false }), 
       type,
       content: msg,
-      read: false 
+      read: false,
+      isBurn
     });
     if (data.length > 50) data.shift();
     await kv.put(msgKey, JSON.stringify(data), { expirationTtl: 43200 });
     return new Response(JSON.stringify({ code: 200 }), { headers: corsHeaders });
   }
 
-  // 8. 获取私聊消息
   if (path === "/api/get-friend-msg") {
     const myCode = url.searchParams.get("myCode");
     const targetCode = url.searchParams.get("targetCode");
     const relKey = [myCode, targetCode].sort().join("_");
     const msgKey = `friend:msg:${relKey}`;
     let data = JSON.parse(await kv.get(msgKey) || "[]");
+    
     let updated = false;
+    // 标记已读
     data = data.map((m: any) => {
       if (m.sender === targetCode && !m.read) {
         m.read = true;
@@ -131,22 +136,25 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
       }
       return m;
     });
-    if (updated) await kv.put(msgKey, JSON.stringify(data), { expirationTtl: 43200 });
+
+    // 逻辑：接收方看到阅后即焚消息后，下次拉取就没了
+    const hasBurnForMe = data.some((m: any) => m.isBurn && m.sender === targetCode);
+    if (hasBurnForMe || updated) {
+      const remaining = data.filter((m: any) => !(m.isBurn && m.sender === targetCode));
+      await kv.put(msgKey, JSON.stringify(remaining), { expirationTtl: 43200 });
+    }
+
     return new Response(JSON.stringify({ code: 200, data }), { headers: corsHeaders });
   }
 
-  // 9. 删除私聊消息 (双向删除/撤回)
   if (path === "/api/delete-friend-msg") {
     const { myCode, targetCode, messageId } = await request.json();
     const relKey = [myCode, targetCode].sort().join("_");
     const msgKey = `friend:msg:${relKey}`;
     const rawData = await kv.get(msgKey);
     if (!rawData) return new Response(JSON.stringify({ code: 404 }), { headers: corsHeaders });
-    
-    let data = JSON.parse(rawData);
-    // 校验权限：只能删除自己发的消息，或者由对方授权（此处简化为私聊双方均可物理删除聊天记录，符合绝对隐私逻辑）
-    const newData = data.filter((m: any) => m.id !== messageId);
-    await kv.put(msgKey, JSON.stringify(newData), { expirationTtl: 43200 });
+    const data = JSON.parse(rawData).filter((m: any) => m.id !== messageId);
+    await kv.put(msgKey, JSON.stringify(data), { expirationTtl: 43200 });
     return new Response(JSON.stringify({ code: 200 }), { headers: corsHeaders });
   }
 
