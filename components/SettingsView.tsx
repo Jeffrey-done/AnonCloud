@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Settings, ShieldCheck, Database, HelpCircle, Code, Copy, CheckCircle2 } from 'lucide-react';
+import { Settings, HelpCircle, Code, Copy, CheckCircle2 } from 'lucide-react';
 
 interface SettingsViewProps {
   apiBase: string;
@@ -10,7 +10,7 @@ interface SettingsViewProps {
 const SettingsView: React.FC<SettingsViewProps> = ({ apiBase, setApiBase }) => {
   const [copied, setCopied] = useState(false);
   
-  // 完整的后端 Worker 代码逻辑 - 专为 Cloudflare Workers 优化
+  // 完整的后端 Worker 代码逻辑
   const fullWorkerCode = `/**
  * AnonCloud Chat 后端 Worker
  * 部署指南：
@@ -170,11 +170,23 @@ export default {
           <HelpCircle size={20} />
           <h2 className="text-lg font-bold">部署步骤回顾</h2>
         </div>
-        <div className="text-xs text-slate-500 space-y-2 list-decimal list-inside">
-          <p>1. 登录 Cloudflare 控制台，创建一个 KV 命名空间（起名为 chat-anon-kv）。</p>
-          <p>2. 创建一个 Worker，将上方的黑色背景代码全部替换进去。</p>
-          <p>3. 在 Worker 的【设置】→【变量】里，将刚才的 KV 绑定为变量名 <code className="text-blue-600 font-bold">CHAT_KV</code>。</p>
-          <p>4. 部署 Worker 后，把它的 URL 填入本页顶部的配置框中。</p>
+        <div className="text-xs text-slate-500 space-y-3">
+          <div className="flex items-start space-x-3">
+            <span className="bg-slate-100 text-slate-600 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0">1</span>
+            <p>登录 Cloudflare 控制台，创建一个 KV 命名空间（建议起名为 chat-anon-kv）。</p>
+          </div>
+          <div className="flex items-start space-x-3">
+            <span className="bg-slate-100 text-slate-600 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0">2</span>
+            <p>创建一个 Worker，将上方的黑色背景代码全部替换进去并保存。</p>
+          </div>
+          <div className="flex items-start space-x-3">
+            <span className="bg-slate-100 text-slate-600 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0">3</span>
+            <p>在 Worker 的【设置】{'→'}【变量】里，添加 KV 命名空间绑定，变量名设为 <code className="text-blue-600 font-bold bg-blue-50 px-1 rounded">CHAT_KV</code>。</p>
+          </div>
+          <div className="flex items-start space-x-3">
+            <span className="bg-slate-100 text-slate-600 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0">4</span>
+            <p>部署成功后获取 Worker URL，填入本页顶部的配置框即可开始聊天。</p>
+          </div>
         </div>
       </div>
     </div>
