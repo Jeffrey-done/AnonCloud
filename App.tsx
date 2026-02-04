@@ -4,14 +4,11 @@ import { TabType } from './types';
 import RoomView from './components/RoomView';
 import FriendView from './components/FriendView';
 import SettingsView from './components/SettingsView';
-import { MessageSquare, Users, Settings, Shield } from 'lucide-react';
+import { MessageSquare, Users, Settings, Shield, Zap } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>(TabType.ROOM);
-  
-  // 将 DEFAULT_API 改为空字符串，表示使用当前页面的同名路径
-  // 这样只要 Pages 绑定了自定义域名，API 就会通过该域名访问，不再走 workers.dev
-  const DEFAULT_API = ''; 
+  const DEFAULT_API = 'https://anon-chat-api.jeffreyy.workers.dev';
 
   const [apiBase, setApiBase] = useState<string>(() => {
     return localStorage.getItem('anon_chat_api_base') || DEFAULT_API;
@@ -42,11 +39,11 @@ const App: React.FC = () => {
             {isDefault ? (
               <div className="flex items-center space-x-1.5 text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full text-[10px] font-black border border-emerald-100 shadow-sm shadow-emerald-100/50">
                 <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                <span>NATIVE NODE</span>
+                <span>SECURE NODE</span>
               </div>
             ) : (
               <div className="flex items-center space-x-1 text-amber-600 bg-amber-50 px-3 py-1.5 rounded-full text-[10px] font-black border border-amber-100">
-                <span>REMOTE API</span>
+                <span>CUSTOM API</span>
               </div>
             )}
           </div>
@@ -62,7 +59,7 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Bottom Nav */}
+      {/* Bottom Nav - Floating Style */}
       <nav className="fixed bottom-6 left-4 right-4 z-50">
         <div className="max-w-md mx-auto bg-slate-900/95 backdrop-blur-lg border border-white/10 rounded-3xl shadow-2xl shadow-slate-900/40 px-2 py-2">
           <div className="flex items-center justify-between">
