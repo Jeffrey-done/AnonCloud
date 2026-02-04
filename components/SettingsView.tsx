@@ -1,194 +1,74 @@
 
 import React, { useState } from 'react';
-import { Settings, HelpCircle, Code, Copy, CheckCircle2 } from 'lucide-react';
+import { Settings, HelpCircle, RotateCcw, Zap, Info, ShieldCheck } from 'lucide-react';
 
 interface SettingsViewProps {
   apiBase: string;
   setApiBase: (url: string) => void;
+  defaultApi: string;
 }
 
-const SettingsView: React.FC<SettingsViewProps> = ({ apiBase, setApiBase }) => {
-  const [copied, setCopied] = useState(false);
-  
-  // 完整的后端 Worker 代码逻辑
-  const fullWorkerCode = `/**
- * AnonCloud Chat 后端 Worker
- * 部署指南：
- * 1. 在 Cloudflare 创建 Worker
- * 2. 粘贴此代码
- * 3. 在 Worker 设置 -> 变量 -> KV 命名空间绑定：
- *    - 变量名: CHAT_KV
- *    - KV 命名空间: 选择您创建的 KV
- */
-export default {
-  async fetch(request, env) {
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-    };
-
-    if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-
-    const url = new URL(request.url);
-    const path = url.pathname;
-    const kv = env.CHAT_KV;
-
-    if (!kv) {
-      return new Response(JSON.stringify({ code: 500, msg: "KV 命名空间未绑定" }), { 
-        status: 500, 
-        headers: { ...corsHeaders, "Content-Type": "application/json" } 
-      });
-    }
-
-    const generateCode = (len) => {
-      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-      let res = "";
-      for(let i=0; i<len; i++) res += chars.charAt(Math.floor(Math.random()*chars.length));
-      return res;
-    };
-
-    // --- 房间群聊接口 ---
-    if (path === "/api/create-room") {
-      const code = generateCode(6);
-      await kv.put(\`room:msg:\${code}\`, "[]", { expirationTtl: 43200 }); // 12小时自动销毁
-      return new Response(JSON.stringify({ code: 200, roomCode: code }), { 
-        headers: { ...corsHeaders, "Content-Type": "application/json" } 
-      });
-    }
-
-    if (path === "/api/send-msg") {
-      const { roomCode, msg } = await request.json();
-      const key = \`room:msg:\${roomCode}\`;
-      const rawData = await kv.get(key);
-      if (rawData === null) return new Response(JSON.stringify({ code: 404, msg: "房间不存在或已过期" }), { headers: corsHeaders });
-      
-      const data = JSON.parse(rawData);
-      data.push({ time: new Date().toLocaleTimeString(), content: msg });
-      if (data.length > 50) data.shift(); // 限制记录数量
-      await kv.put(key, JSON.stringify(data), { expirationTtl: 43200 });
-      return new Response(JSON.stringify({ code: 200 }), { headers: corsHeaders });
-    }
-
-    if (path === "/api/get-msg") {
-      const code = url.searchParams.get("roomCode");
-      const data = await kv.get(\`room:msg:\${code}\`);
-      return new Response(JSON.stringify({ code: 200, data: JSON.parse(data || "[]") }), { 
-        headers: { ...corsHeaders, "Content-Type": "application/json" } 
-      });
-    }
-
-    // --- 1v1 私聊接口 ---
-    if (path === "/api/create-friend-code") {
-      const code = generateCode(8);
-      await kv.put(\`friend:reg:\${code}\`, "1", { expirationTtl: 604800 }); // 7天有效
-      return new Response(JSON.stringify({ code: 200, friendCode: code }), { headers: corsHeaders });
-    }
-
-    if (path === "/api/add-friend") {
-      const { myCode, targetCode } = await request.json();
-      const relKey = [myCode, targetCode].sort().join("_");
-      await kv.put(\`friend:rel:\${relKey}\`, "1", { expirationTtl: 604800 });
-      return new Response(JSON.stringify({ code: 200, msg: "连接成功" }), { headers: corsHeaders });
-    }
-
-    if (path === "/api/send-friend-msg") {
-      const { myCode, targetCode, msg } = await request.json();
-      const relKey = [myCode, targetCode].sort().join("_");
-      const msgKey = \`friend:msg:\${relKey}\`;
-      const data = JSON.parse(await kv.get(msgKey) || "[]");
-      data.push({ time: new Date().toLocaleTimeString(), content: msg });
-      await kv.put(msgKey, JSON.stringify(data), { expirationTtl: 43200 });
-      return new Response(JSON.stringify({ code: 200 }), { headers: corsHeaders });
-    }
-
-    if (path === "/api/get-friend-msg") {
-      const myCode = url.searchParams.get("myCode");
-      const targetCode = url.searchParams.get("targetCode");
-      const relKey = [myCode, targetCode].sort().join("_");
-      const data = await kv.get(\`friend:msg:\${relKey}\`);
-      return new Response(JSON.stringify({ code: 200, data: JSON.parse(data || "[]") }), { headers: corsHeaders });
-    }
-
-    return new Response(JSON.stringify({ code: 404, msg: "Endpoint not found" }), { 
-      status: 404, 
-      headers: { ...corsHeaders, "Content-Type": "application/json" } 
-    });
-  }
-};`;
-
-  const copyWorkerCode = () => {
-    navigator.clipboard.writeText(fullWorkerCode);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+const SettingsView: React.FC<SettingsViewProps> = ({ apiBase, setApiBase, defaultApi }) => {
+  const isDefault = apiBase === defaultApi;
 
   return (
     <div className="space-y-6 pb-12">
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-        <div className="flex items-center space-x-2 text-slate-700">
-          <Settings size={20} />
-          <h2 className="text-lg font-bold">后端连接配置</h2>
-        </div>
-        <div className="space-y-3">
-          <div>
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Cloudflare Worker API URL</label>
-            <input
-              type="text"
-              value={apiBase}
-              onChange={(e) => setApiBase(e.target.value)}
-              placeholder="https://your-worker.username.workers.dev"
-              className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-mono"
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-xl space-y-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2 text-blue-400">
-            <Code size={20} />
-            <h2 className="text-lg font-bold">后端部署代码 (直接复制)</h2>
+          <div className="flex items-center space-x-2 text-slate-700">
+            <Settings size={20} />
+            <h2 className="text-lg font-bold">后端引擎配置</h2>
           </div>
-          <button onClick={copyWorkerCode} className="flex items-center space-x-1 text-slate-400 hover:text-white transition-colors">
-            {copied ? <CheckCircle2 size={16} className="text-green-500" /> : <Copy size={16} />}
-            <span className="text-xs">{copied ? '已复制' : '复制全代码'}</span>
-          </button>
+          {isDefault && (
+            <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-tight">官方预设</span>
+          )}
         </div>
-        <div className="bg-slate-950 rounded-xl p-4 overflow-hidden border border-slate-800">
-          <pre className="text-[11px] text-slate-500 font-mono whitespace-pre overflow-x-auto max-h-60 overflow-y-auto">
-            {fullWorkerCode}
-          </pre>
+
+        <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
+          <div className="flex items-start space-x-3">
+            <Zap size={18} className="text-blue-600 mt-0.5" />
+            <div className="text-xs text-slate-600 leading-relaxed">
+              <p className="font-bold text-slate-800 mb-1">当前 API 地址</p>
+              <p className="font-mono break-all">{apiBase || '（使用相对路径 /api）'}</p>
+            </div>
+          </div>
+          
+          {!isDefault && (
+            <button 
+              onClick={() => setApiBase(defaultApi)}
+              className="flex items-center space-x-1.5 text-[10px] font-bold text-blue-600 hover:text-blue-700 uppercase pt-2"
+            >
+              <RotateCcw size={12} />
+              <span>恢复官方内置地址</span>
+            </button>
+          )}
         </div>
-        <p className="text-xs text-slate-400 leading-relaxed italic">
-          注：在 Worker 中必须绑定一个名为 CHAT_KV 的命名空间，否则 API 会报错。
-        </p>
+
+        <div className="space-y-3">
+          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">自定义 API Base URL</label>
+          <input
+            type="text"
+            value={apiBase}
+            onChange={(e) => setApiBase(e.target.value)}
+            placeholder="https://your-worker.workers.dev"
+            className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-sm"
+          />
+        </div>
       </div>
 
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
         <div className="flex items-center space-x-2 text-slate-700">
-          <HelpCircle size={20} />
-          <h2 className="text-lg font-bold">部署步骤回顾</h2>
+          <ShieldCheck size={20} className="text-emerald-500" />
+          <h2 className="text-lg font-bold">隐私与安全</h2>
         </div>
-        <div className="text-xs text-slate-500 space-y-3">
+        <div className="space-y-3 text-sm text-slate-600">
           <div className="flex items-start space-x-3">
-            <span className="bg-slate-100 text-slate-600 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0">1</span>
-            <p>登录 Cloudflare 控制台，创建一个 KV 命名空间（建议起名为 chat-anon-kv）。</p>
+            <div className="bg-emerald-50 p-1.5 rounded-lg text-emerald-600 mt-0.5"><Info size={14} /></div>
+            <p>本程序采用<b>无状态匿名设计</b>。您的消息直接通过加密隧道传输，不关联任何个人 ID。</p>
           </div>
           <div className="flex items-start space-x-3">
-            <span className="bg-slate-100 text-slate-600 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0">2</span>
-            <p>创建一个 Worker，将上方的黑色背景代码全部替换进去并保存。</p>
-          </div>
-          <div className="flex items-start space-x-3">
-            <span className="bg-slate-100 text-slate-600 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0">3</span>
-            <p>
-              在 Worker 的【设置】{' '}<span>&rarr;</span>{' '}【变量】里，添加 KV 命名空间绑定，变量名设为{' '}
-              <code className="text-blue-600 font-bold bg-blue-50 px-1 rounded">CHAT_KV</code>。
-            </p>
-          </div>
-          <div className="flex items-start space-x-3">
-            <span className="bg-slate-100 text-slate-600 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0">4</span>
-            <p>部署成功后获取 Worker URL，填入本页顶部的配置框即可开始聊天。</p>
+            <div className="bg-emerald-50 p-1.5 rounded-lg text-emerald-600 mt-0.5"><Info size={14} /></div>
+            <p>所有聊天记录由 Cloudflare KV 设置了 <b>TTL 自动物理销毁</b>。12 小时后数据将彻底从服务器抹除。</p>
           </div>
         </div>
       </div>
