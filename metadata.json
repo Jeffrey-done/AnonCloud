@@ -1,5 +1,7 @@
 {
   "name": "AnonCloud Chat",
   "description": "A fully anonymous, serverless chat application leveraging Cloudflare Workers and KV for ephemeral, secure communication without registration.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "microphone"
+  ]
 }

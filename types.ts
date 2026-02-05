@@ -1,5 +1,5 @@
 
-export type MessageType = 'text' | 'image' | 'video';
+export type MessageType = 'text' | 'image' | 'video' | 'audio';
 
 export interface Message {
   id: string;
@@ -8,6 +8,12 @@ export interface Message {
   type: MessageType;
   content: string; // 文本内容或 Base64 媒体数据
   read: boolean;
+}
+
+export interface SavedRoom {
+  code: string;
+  pass: string;
+  lastUsed: number;
 }
 
 export interface ApiResponse<T> {

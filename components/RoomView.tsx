@@ -1,12 +1,12 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Message, MessageType } from '../types';
+import { Message, MessageType, SavedRoom } from '../types';
 import { request } from '../services/api';
 import { deriveKey, encryptContent, decryptContent } from '../services/crypto';
 import ProtocolInfo from './ProtocolInfo';
 import { 
   Send, PlusCircle, Copy, CheckCircle2, Image as ImageIcon, 
-  Smile, X, Maximize2, AlertCircle, Loader2, Lock, Unlock, HelpCircle, Zap 
+  Smile, X, Maximize2, AlertCircle, Loader2, Lock, Unlock, HelpCircle, Zap, History, Trash2, Mic, StopCircle, Play, Pause, Volume2
 } from 'lucide-react';
 
 const EMOJIS = ['😀', '😂', '😍', '🤔', '😎', '🙄', '🔥', '✨', '👍', '🙏', '❤️', '🎉', '👋', '👀', '🌚', '🤫'];
@@ -15,6 +15,11 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [roomCode, setRoomCode] = useState<string>(() => localStorage.getItem('anon_last_room_input') || '');
   const [password, setPassword] = useState<string>(() => localStorage.getItem('anon_last_room_pass') || '');
   const [activeRoom, setActiveRoom] = useState<string>(() => localStorage.getItem('anon_active_room') || '');
+  const [savedRooms, setSavedRooms] = useState<SavedRoom[]>(() => {
+    const saved = localStorage.getItem('anon_saved_rooms');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
   const [cryptoKey, setCryptoKey] = useState<CryptoKey | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMsg, setInputMsg] = useState<string>('');
@@ -25,6 +30,13 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   
+  // Audio Recording States
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordDuration, setRecordDuration] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordTimerRef = useRef<any>(null);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -32,11 +44,13 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     localStorage.setItem('anon_active_room', activeRoom);
     localStorage.setItem('anon_last_room_input', roomCode);
     localStorage.setItem('anon_last_room_pass', password);
+    localStorage.setItem('anon_saved_rooms', JSON.stringify(savedRooms));
     
     if (activeRoom && password) {
       initCrypto();
+      saveToHistory(activeRoom, password);
     }
-  }, [activeRoom, roomCode, password]);
+  }, [activeRoom, roomCode, password, savedRooms]);
 
   const initCrypto = async () => {
     try {
@@ -45,6 +59,26 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     } catch (e) {
       setError('密钥初始化失败');
     }
+  };
+
+  const saveToHistory = (code: string, pass: string) => {
+    if (!code || !pass) return;
+    setSavedRooms(prev => {
+      const filtered = prev.filter(r => r.code !== code);
+      const updated = [{ code, pass, lastUsed: Date.now() }, ...filtered].slice(0, 10);
+      return updated;
+    });
+  };
+
+  const removeSavedRoom = (e: React.MouseEvent, code: string) => {
+    e.stopPropagation();
+    setSavedRooms(prev => prev.filter(r => r.code !== code));
+  };
+
+  const handleQuickJoin = (room: SavedRoom) => {
+    setRoomCode(room.code);
+    setPassword(room.pass);
+    setTimeout(() => { setActiveRoom(room.code); }, 50);
   };
 
   useEffect(() => {
@@ -63,7 +97,6 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const fetchMessages = async () => {
     const res = await request<Message[]>(apiBase, `/api/get-msg?roomCode=${activeRoom}`);
     if (res.code === 200 && res.data) {
-      // 在前端进行实时解密
       if (cryptoKey) {
         const decryptedMsgs = await Promise.all(res.data.map(async (m) => {
           const decrypted = await decryptContent(cryptoKey, m.content);
@@ -84,7 +117,6 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     if (!rawContent.trim() || !activeRoom || !cryptoKey) return;
     
     setLoading(true);
-    // 离开浏览器前进行加密
     const encrypted = await encryptContent(cryptoKey, rawContent);
     
     const res = await request<any>(apiBase, '/api/send-msg', 'POST', { 
@@ -103,17 +135,100 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     }
   };
 
+  // Audio Recording Logic
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+      
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.onload = async () => {
+          const base64 = reader.result as string;
+          await sendMessage(base64, 'audio');
+        };
+        reader.readAsDataURL(audioBlob);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      recorder.start();
+      setIsRecording(true);
+      setRecordDuration(0);
+      recordTimerRef.current = setInterval(() => {
+        setRecordDuration(prev => prev + 1);
+      }, 1000);
+    } catch (err) {
+      setError('无法访问麦克风');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      clearInterval(recordTimerRef.current);
+    }
+  };
+
+  const formatDuration = (s: number) => {
+    const mins = Math.floor(s / 60);
+    const secs = s % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = async (event) => {
       const base64 = event.target?.result as string;
-      const type: MessageType = file.type.startsWith('video') ? 'video' : 'image';
+      const type: MessageType = file.type.startsWith('video') ? 'video' : (file.type.startsWith('audio') ? 'audio' : 'image');
       await sendMessage(base64, type);
     };
     reader.readAsDataURL(file);
     e.target.value = '';
+  };
+
+  const AudioPlayer: React.FC<{ src: string }> = ({ src }) => {
+    const [playing, setPlaying] = useState(false);
+    const audioRef = useRef<HTMLAudioElement>(null);
+    
+    const toggle = () => {
+      if (playing) audioRef.current?.pause();
+      else audioRef.current?.play();
+      setPlaying(!playing);
+    };
+
+    return (
+      <div className="flex items-center space-x-3 bg-slate-100/50 p-3 rounded-2xl border border-slate-200/50 min-w-[160px]">
+        <audio ref={audioRef} src={src} onEnded={() => setPlaying(false)} className="hidden" />
+        <button onClick={toggle} className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white shadow-md active:scale-90 transition-all">
+          {playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-0.5" />}
+        </button>
+        <div className="flex-1 space-y-1">
+          <div className="flex items-end space-x-0.5 h-4">
+             {[...Array(12)].map((_, i) => (
+               <div key={i} className={`w-1 bg-blue-400/40 rounded-full ${playing ? 'animate-bounce' : ''}`} style={{ 
+                 height: `${Math.random() * 100}%`,
+                 animationDelay: `${i * 0.1}s`,
+                 animationDuration: '0.6s'
+               }} />
+             ))}
+          </div>
+          <div className="flex justify-between items-center px-0.5">
+            <span className="text-[10px] font-black text-blue-600/60 uppercase">E2EE Audio</span>
+            <Volume2 size={10} className="text-slate-300" />
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const renderMessageContent = (m: Message) => {
@@ -127,8 +242,12 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
       );
     }
     
+    if (m.type === 'audio' || content.startsWith('data:audio/') || content.startsWith('data:video/webm')) {
+      return <AudioPlayer src={content} />;
+    }
+
     const isImageData = content.startsWith('data:image/');
-    const isVideoData = content.startsWith('data:video/');
+    const isVideoData = content.startsWith('data:video/') && !content.startsWith('data:video/webm');
 
     if (m.type === 'image' || isImageData) {
       return (
@@ -227,6 +346,19 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
             </div>
           )}
 
+          {isRecording && (
+            <div className="absolute bottom-24 left-4 right-4 bg-slate-900/90 backdrop-blur-md border border-white/10 p-4 rounded-3xl shadow-2xl z-50 flex items-center justify-between animate-in slide-in-from-bottom-4">
+              <div className="flex items-center space-x-4">
+                <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.5)]" />
+                <span className="text-white font-black font-mono text-lg">{formatDuration(recordDuration)}</span>
+                <span className="text-white/40 text-xs font-bold uppercase tracking-widest">Recording Secure Audio...</span>
+              </div>
+              <button onClick={stopRecording} className="p-3 bg-red-500 hover:bg-red-600 text-white rounded-full transition-all active:scale-90 shadow-lg shadow-red-500/20">
+                <StopCircle size={24} />
+              </button>
+            </div>
+          )}
+
           <div className="relative flex flex-col p-2 rounded-[32px] border transition-all duration-300 bg-white border-slate-200 shadow-xl shadow-slate-200/50">
             <div className="flex items-center">
               <button onClick={() => setShowEmoji(!showEmoji)} className="p-2.5 rounded-full transition-all text-slate-400 hover:text-blue-600 hover:bg-blue-50">
@@ -238,19 +370,23 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
                 value={inputMsg}
                 onChange={(e) => setInputMsg(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-                placeholder="Secure message..."
+                placeholder={isRecording ? "Recording..." : "Secure message..."}
+                disabled={isRecording}
                 className="flex-1 border-none bg-transparent px-3 py-2.5 text-[15px] font-medium focus:ring-0 outline-none transition-colors text-slate-800 placeholder:text-slate-400"
               />
               
               <div className="flex items-center space-x-1 pr-1">
+                <button onClick={() => startRecording()} className={`p-2.5 rounded-full transition-all ${isRecording ? 'text-red-500 bg-red-50' : 'text-slate-400 hover:text-red-500 hover:bg-red-50'}`}>
+                  <Mic size={20} />
+                </button>
                 <button onClick={() => fileInputRef.current?.click()} className="p-2.5 rounded-full transition-all text-slate-400 hover:text-slate-600 hover:bg-slate-100">
                   <ImageIcon size={20} />
                 </button>
-                <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleFileUpload} />
+                <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*,audio/*" onChange={handleFileUpload} />
                 
                 <button 
                   onClick={() => sendMessage()} 
-                  disabled={loading || !inputMsg.trim()}
+                  disabled={loading || !inputMsg.trim() || isRecording}
                   className="p-3 rounded-full shadow-lg transition-all active:scale-90 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
                 >
                   {loading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} strokeWidth={2.5} />}
@@ -267,7 +403,8 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     <div className="space-y-6 max-w-md mx-auto">
       {showProtocol && <ProtocolInfo onClose={() => setShowProtocol(false)} />}
       
-      <div className="bg-white p-8 rounded-[40px] border border-slate-200/60 shadow-xl shadow-slate-200/50 text-center space-y-6">
+      {/* 1. Main Create Room Card */}
+      <div className="bg-white p-8 rounded-[40px] border border-slate-200/60 shadow-xl shadow-slate-200/50 text-center space-y-6 animate-in fade-in slide-in-from-bottom-4">
          <div className="relative mx-auto bg-gradient-to-br from-slate-900 to-indigo-950 w-20 h-20 rounded-[30px] flex items-center justify-center text-white shadow-2xl shadow-indigo-200">
             <Lock size={36} strokeWidth={2.5} />
             <div className="absolute -top-2 -right-2 bg-blue-500 p-1.5 rounded-full ring-4 ring-white">
@@ -280,7 +417,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
          </div>
          
          {error && (
-            <div className="p-3 bg-red-50 border border-red-100 rounded-2xl flex items-center space-x-2 text-red-600 text-left">
+            <div className="p-3 bg-red-50 border border-red-100 rounded-2xl flex items-center space-x-3 text-red-600 text-left animate-in shake-in">
               <AlertCircle size={18} className="flex-shrink-0" />
               <p className="text-[11px] font-bold leading-tight">{error}</p>
             </div>
@@ -289,7 +426,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
          <div className="space-y-3">
             <button 
               onClick={async () => { 
-                if(!password) { setError('请设置房间密码以派生密钥'); return; }
+                if(!password) { setError('请先在下方输入或随机生成一个秘密作为房间密码'); return; }
                 setError(null); setLoading(true); 
                 const res = await request<any>(apiBase, '/api/create-room'); 
                 if (res.code === 200) setActiveRoom(res.roomCode!); 
@@ -299,7 +436,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
               disabled={loading} 
               className="w-full bg-slate-900 text-white py-5 rounded-3xl font-black text-sm uppercase tracking-widest shadow-2xl shadow-slate-900/20 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center space-x-2"
             >
-              {loading && <Loader2 size={18} className="animate-spin" />}
+              {loading ? <Loader2 size={18} className="animate-spin" /> : <PlusCircle size={18} />}
               <span>{loading ? 'GENERATING...' : 'New Secure Room'}</span>
             </button>
             <button 
@@ -312,9 +449,10 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
          </div>
       </div>
 
-      <div className="bg-white/80 backdrop-blur-sm p-6 rounded-[32px] border border-white shadow-sm space-y-4">
+      {/* 2. Join Form Card */}
+      <div className="bg-white/90 backdrop-blur-md p-6 rounded-[32px] border border-white shadow-sm space-y-4">
          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 flex flex-col">
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 flex flex-col focus-within:ring-2 focus-within:ring-blue-100 transition-all">
                <label className="text-[9px] font-black text-slate-400 uppercase mb-1">Room Code</label>
                <input 
                  type="text" 
@@ -324,7 +462,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
                  className="bg-transparent font-black font-mono tracking-widest outline-none text-slate-800 placeholder:text-slate-300" 
                />
             </div>
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 flex flex-col">
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 flex flex-col focus-within:ring-2 focus-within:ring-blue-100 transition-all">
                <label className="text-[9px] font-black text-slate-400 uppercase mb-1">Key Password</label>
                <input 
                  type="password" 
@@ -346,6 +484,43 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
            <span>Access Vault</span>
          </button>
       </div>
+
+      {/* 3. Refined Saved Rooms Section - Chips Layout */}
+      {savedRooms.length > 0 && (
+        <div className="px-2 space-y-2.5">
+          <div className="flex items-center justify-between px-1">
+             <div className="flex items-center space-x-2">
+               <History size={12} className="text-slate-400" />
+               <span className="text-[10px] font-black uppercase tracking-[0.1em] text-slate-400">Quick Entry</span>
+             </div>
+             <button 
+               onClick={() => { if(confirm("Clear all?")) setSavedRooms([]); }}
+               className="text-[9px] font-bold text-slate-300 hover:text-red-400 uppercase tracking-tighter transition-colors"
+             >
+               Clear All
+             </button>
+          </div>
+          
+          <div className="flex flex-wrap gap-2">
+            {savedRooms.map((room) => (
+              <div 
+                key={room.code}
+                onClick={() => handleQuickJoin(room)}
+                className="group flex items-center bg-white/50 backdrop-blur-sm border border-slate-200/60 rounded-full pl-3 pr-1 py-1 hover:bg-white hover:border-blue-300 hover:shadow-sm transition-all cursor-pointer active:scale-95"
+              >
+                <Lock size={10} className="text-blue-400 mr-2" />
+                <span className="text-[11px] font-black font-mono tracking-widest text-slate-700 mr-2">{room.code}</span>
+                <button 
+                  onClick={(e) => removeSavedRoom(e, room.code)}
+                  className="p-1 rounded-full text-slate-300 hover:bg-red-50 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
