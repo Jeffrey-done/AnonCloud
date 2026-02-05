@@ -2,19 +2,28 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Message, MessageType } from '../types';
 import { request } from '../services/api';
-import { Send, UserPlus, Fingerprint, Lock, Copy, CheckCircle2, Check, Image as ImageIcon, Smile, X, Maximize2 } from 'lucide-react';
+import { deriveKey, encryptContent, decryptContent } from '../services/crypto';
+import { 
+  Send, UserPlus, Fingerprint, Lock, Copy, CheckCircle2, Check, 
+  Image as ImageIcon, Smile, X, Maximize2, Mic, Square, Play, ShieldAlert, Key
+} from 'lucide-react';
 
 const EMOJIS = ['❤️', '✨', '🔥', '😂', '😭', '🤡', '💀', '💯', '👌', '👀', '🤫', '🌹'];
 
 const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [myCode, setMyCode] = useState<string>(() => localStorage.getItem('anon_my_friend_code') || '');
   const [targetCode, setTargetCode] = useState<string>(() => localStorage.getItem('anon_target_friend_code') || '');
+  const [sharedKey, setSharedKey] = useState<string>(() => localStorage.getItem('anon_friend_shared_key') || '');
   const [isPaired, setIsPaired] = useState<boolean>(() => localStorage.getItem('anon_friend_paired') === 'true');
+  const [cryptoKey, setCryptoKey] = useState<CryptoKey | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMsg, setInputMsg] = useState<string>('');
   const [showEmoji, setShowEmoji] = useState(false);
   const [copied, setCopied] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -22,34 +31,54 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   useEffect(() => {
     localStorage.setItem('anon_my_friend_code', myCode);
     localStorage.setItem('anon_target_friend_code', targetCode);
+    localStorage.setItem('anon_friend_shared_key', sharedKey);
     localStorage.setItem('anon_friend_paired', String(isPaired));
-  }, [myCode, targetCode, isPaired]);
+    
+    if (isPaired && sharedKey) {
+      initCrypto();
+    }
+  }, [myCode, targetCode, isPaired, sharedKey]);
+
+  const initCrypto = async () => {
+    try {
+      // 私聊密钥使用 双方 ID 排序后的组合 + 共享密码 派生
+      const salt = [myCode, targetCode].sort().join(':');
+      const key = await deriveKey(salt, sharedKey);
+      setCryptoKey(key);
+    } catch (e) {
+      console.error('Key derivation failed');
+    }
+  };
 
   useEffect(() => {
     let interval: any;
-    if (isPaired && myCode && targetCode) {
+    if (isPaired && cryptoKey) {
       fetchMessages();
       interval = setInterval(fetchMessages, 3500);
     }
     return () => clearInterval(interval);
-  }, [isPaired, myCode, targetCode]);
-
-  useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages]);
+  }, [isPaired, cryptoKey, myCode, targetCode]);
 
   const fetchMessages = async () => {
     const res = await request<Message[]>(apiBase, `/api/get-friend-msg?myCode=${myCode}&targetCode=${targetCode}`);
-    if (res.code === 200 && res.data) setMessages(res.data);
+    if (res.code === 200 && res.data && cryptoKey) {
+      const decryptedMsgs = await Promise.all(res.data.map(async (m) => {
+        const decrypted = await decryptContent(cryptoKey, m.content);
+        return { ...m, content: decrypted || '🔒 [无法解密的私密内容]' };
+      }));
+      setMessages(decryptedMsgs);
+    }
   };
 
   const sendMessage = async (content?: string, type: MessageType = 'text') => {
     const payload = content !== undefined ? content : inputMsg;
-    if (!payload.trim() || !isPaired) return;
+    if (!payload.trim() || !isPaired || !cryptoKey) return;
+    
+    const encrypted = await encryptContent(cryptoKey, payload);
     const res = await request<any>(apiBase, '/api/send-friend-msg', 'POST', { 
       myCode, 
       targetCode, 
-      msg: payload, 
+      msg: encrypted, 
       type
     });
     if (res.code === 200) {
@@ -58,95 +87,84 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const type: MessageType = file.type.startsWith('video') ? 'video' : 'image';
-      await sendMessage(ev.target?.result as string, type);
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      mediaRecorder.ondataavailable = e => audioChunksRef.current.push(e.data);
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.onloadend = async () => sendMessage(reader.result as string, 'audio');
+        reader.readAsDataURL(audioBlob);
+        stream.getTracks().forEach(t => t.stop());
+      };
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (e) { alert('无法访问麦克风'); }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
   };
 
   const renderMessageContent = (m: Message, isMe: boolean) => {
     const content = (m.content || '').trim();
-    const isImageData = content.startsWith('data:image/');
-    const isVideoData = content.startsWith('data:video/');
+    if (content.includes('[无法解密的私密内容]')) {
+      return <div className="text-xs italic opacity-50 flex items-center"><ShieldAlert size={12} className="mr-1"/> 密钥不匹配或已损坏</div>;
+    }
 
-    if (m.type === 'image' || isImageData) {
+    if (m.type === 'audio' || content.startsWith('data:audio/')) {
       return (
-        <div className="relative group/media">
-          <img 
-            src={content} 
-            className="rounded-2xl max-w-full max-h-[300px] object-cover cursor-zoom-in shadow-md" 
-            alt="media" 
-            onClick={() => setPreviewImage(content)}
-          />
-          <div className="absolute top-2 right-2 p-1.5 bg-black/20 backdrop-blur-md rounded-lg text-white opacity-0 group-hover/media:opacity-100 transition-opacity pointer-events-none">
-            <Maximize2 size={12} />
-          </div>
-        </div>
+        <button onClick={() => new Audio(content).play()} className={`flex items-center space-x-2 p-2 rounded-xl ${isMe ? 'bg-white/20' : 'bg-slate-100'}`}>
+          <Play size={14} fill="currentColor" />
+          <span className="text-[10px] font-bold uppercase tracking-widest">Encrypted Voice</span>
+        </button>
       );
     }
     
-    if (m.type === 'video' || isVideoData) {
-      return <video src={content} controls className="rounded-2xl max-w-full max-h-[300px] shadow-md" />;
+    if (m.type === 'image' || content.startsWith('data:image/')) {
+      return <img src={content} className="rounded-2xl max-w-full max-h-[300px] object-cover shadow-md" alt="media" onClick={() => setPreviewImage(content)} />;
     }
 
-    return (
-      <div className="max-w-full overflow-hidden">
-        <p className={`text-[14px] leading-relaxed break-all whitespace-pre-wrap ${isMe ? 'text-white' : 'text-slate-800'}`}>
-          {m.content}
-        </p>
-      </div>
-    );
+    return <p className={`text-[14px] leading-relaxed break-all ${isMe ? 'text-white' : 'text-slate-800'}`}>{m.content}</p>;
   };
 
   if (isPaired) {
     return (
       <div className="flex flex-col h-[calc(100vh-12rem)] overflow-hidden">
         {previewImage && (
-          <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in zoom-in duration-300" onClick={() => setPreviewImage(null)}>
-            <img src={previewImage} className="max-w-full max-h-full rounded-2xl shadow-2xl ring-1 ring-white/10" alt="preview" />
-            <button className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all">
-              <X size={24} />
-            </button>
+          <div className="fixed inset-0 z-[100] bg-slate-900/90 flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
+            <img src={previewImage} className="max-w-full max-h-full rounded-2xl" alt="preview" />
           </div>
         )}
 
         <div className="flex items-center justify-between px-2 mb-4">
           <div className="flex items-center space-x-3 bg-white px-4 py-2 rounded-2xl shadow-sm border border-slate-200/60">
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-lg shadow-emerald-200" />
-            <h3 className="font-black text-slate-700 text-xs tracking-[0.15em] uppercase">{targetCode}</h3>
+            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            <h3 className="font-black text-slate-700 text-xs tracking-widest uppercase">{targetCode}</h3>
           </div>
-          <button onClick={() => setIsPaired(false)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
+          <button onClick={() => { setIsPaired(false); setCryptoKey(null); }} className="p-2 text-slate-400 hover:text-red-500 rounded-xl transition-all">
             <X size={20} />
           </button>
         </div>
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-1 space-y-6 pb-4 scroll-smooth" onClick={() => {setShowEmoji(false);}}>
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-1 space-y-6 pb-4">
           {messages.map((m) => {
             const isMe = m.sender === myCode;
             return (
-              <div key={m.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group relative animate-in fade-in duration-500 transition-all`}>
-                <div className={`flex items-end space-x-2 max-w-[88%] ${isMe ? 'flex-row-reverse space-x-reverse' : ''}`}>
-                  <div className={`relative px-4 py-3 rounded-[24px] shadow-sm transition-all overflow-hidden ${
-                    isMe 
-                      ? 'bg-blue-600 rounded-tr-none shadow-blue-200/50' 
-                      : 'bg-white border border-slate-200/80 rounded-tl-none'
-                  }`}>
-                    {renderMessageContent(m, isMe)}
-                  </div>
+              <div key={m.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group animate-in fade-in`}>
+                <div className={`relative px-4 py-3 rounded-[24px] shadow-sm ${isMe ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-white border border-slate-200/80 rounded-tl-none'}`}>
+                  {renderMessageContent(m, isMe)}
                 </div>
-
-                <div className={`flex items-center mt-1.5 space-x-1.5 ${isMe ? 'flex-row-reverse space-x-reverse' : ''} px-1`}>
-                  <span className="text-[9px] font-black text-slate-300 uppercase tracking-tighter">{m.time}</span>
-                  {isMe && (m.read 
-                    ? <div className="flex -space-x-1.5 opacity-60"><Check size={10} className="text-emerald-500" strokeWidth={3}/><Check size={10} className="text-emerald-500" strokeWidth={3}/></div> 
-                    : <Check size={10} className="text-slate-200" strokeWidth={3}/>
-                  )}
+                <div className="flex items-center mt-1.5 space-x-1.5 px-1">
+                  <span className="text-[9px] font-black text-slate-300 uppercase">{m.time}</span>
+                  {isMe && <Check size={10} className={m.read ? "text-emerald-500" : "text-slate-200"} strokeWidth={3}/>}
                 </div>
               </div>
             );
@@ -154,34 +172,22 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
         </div>
 
         <div className="mt-auto px-1 pb-2">
-          {showEmoji && (
-            <div className="absolute bottom-24 left-4 right-4 bg-white/95 backdrop-blur-md border border-slate-200 p-3 rounded-3xl shadow-2xl z-50 grid grid-cols-6 gap-2">
-              {EMOJIS.map(e => <button key={e} onClick={() => { setInputMsg(p => p + e); setShowEmoji(false); }} className="text-2xl p-2 hover:bg-slate-50 rounded-xl transition-all">{e}</button>)}
-            </div>
-          )}
-
-          <div className="relative flex flex-col p-2 rounded-[32px] border transition-all duration-300 bg-slate-900 border-slate-800 shadow-2xl shadow-slate-900/40">
+          <div className="relative flex flex-col p-2 rounded-[32px] bg-slate-900 border-slate-800 shadow-2xl">
             <div className="flex items-center">
-              <button onClick={() => setShowEmoji(!showEmoji)} className="p-2.5 text-white/50 hover:text-white transition-colors"><Smile size={20} /></button>
-              
+              <button onClick={() => setShowEmoji(!showEmoji)} className="p-2.5 text-white/50 hover:text-white"><Smile size={20} /></button>
               <input 
                 type="text" 
                 value={inputMsg} 
                 onChange={e => setInputMsg(e.target.value)} 
                 onKeyDown={e => e.key === 'Enter' && sendMessage()} 
-                placeholder="Private message..." 
-                className="flex-1 bg-transparent border-none px-3 py-2.5 text-[15px] font-medium focus:ring-0 outline-none transition-colors text-white placeholder:text-white/30" 
+                placeholder={isRecording ? "Recording..." : "Private message..."} 
+                className="flex-1 bg-transparent border-none px-3 py-2.5 text-white outline-none" 
               />
-              
               <div className="flex items-center pr-1">
-                <button onClick={() => fileInputRef.current?.click()} className="p-2.5 text-white/50 hover:text-white"><ImageIcon size={20} /></button>
-                <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleFileUpload} />
-                <button 
-                  onClick={() => sendMessage()} 
-                  className="p-3 rounded-full shadow-lg transition-all active:scale-90 bg-blue-600 text-white"
-                >
-                  <Send size={18} strokeWidth={2.5} />
+                <button onMouseDown={startRecording} onMouseUp={stopRecording} className={`p-2.5 rounded-full transition-all ${isRecording ? 'text-red-500' : 'text-white/50 hover:text-white'}`}>
+                  {isRecording ? <Square size={20} /> : <Mic size={20} />}
                 </button>
+                <button onClick={() => sendMessage()} className="p-3 rounded-full bg-blue-600 text-white active:scale-90"><Send size={18} /></button>
               </div>
             </div>
           </div>
@@ -192,57 +198,30 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
 
   return (
     <div className="space-y-6 max-w-md mx-auto">
-      <div className="bg-white p-8 rounded-[40px] border border-slate-200/60 shadow-xl shadow-slate-200/50 space-y-8">
-        <div>
-          <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center space-x-2">
-            <Fingerprint className="text-blue-600" size={24} />
-            <span>Identity Node</span>
-          </h2>
-          <p className="text-slate-400 text-[12px] font-medium mt-1">Share this code with your contact</p>
-        </div>
-
-        {myCode ? (
-          <div className="group relative">
-            <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-3xl px-4 py-6 text-center">
-              <span className="text-2xl font-black font-mono tracking-[0.4em] text-slate-800 uppercase leading-none">{myCode}</span>
-            </div>
-            <button 
-              onClick={() => { navigator.clipboard.writeText(myCode); setCopied(true); setTimeout(() => setCopied(false), 2000); }} 
-              className="absolute -right-3 -bottom-3 p-4 bg-slate-900 text-white rounded-[24px] shadow-xl shadow-slate-900/30 active:scale-90 transition-all"
-            >
-              {copied ? <CheckCircle2 size={22} className="text-emerald-400" /> : <Copy size={22} />}
-            </button>
-          </div>
-        ) : (
-          <button 
-            onClick={async () => { const res = await request<any>(apiBase, '/api/create-friend-code'); if (res.code === 200) setMyCode(res.friendCode!); }} 
-            className="w-full bg-slate-900 text-white py-5 rounded-3xl font-black text-sm uppercase tracking-widest shadow-2xl shadow-slate-900/20 active:scale-[0.98] transition-all"
-          >
-            Generate Identity
-          </button>
-        )}
-      </div>
-
-      <div className="bg-white p-8 rounded-[40px] border border-slate-200/60 shadow-xl shadow-slate-200/50 space-y-6">
-        <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center space-x-2">
-          <UserPlus className="text-slate-400" size={24} />
-          <span>Sync Pair</span>
-        </h2>
-        
+      <div className="bg-white p-8 rounded-[40px] border border-slate-200/60 shadow-xl space-y-6">
+        <h2 className="text-xl font-black text-slate-900 flex items-center space-x-2"><Fingerprint className="text-blue-600" /><span>Pair Nodes</span></h2>
         <div className="space-y-4">
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-1 flex items-center">
+          <div className="bg-slate-50 border rounded-2xl p-1 flex items-center">
              <div className="p-3 text-slate-400"><Fingerprint size={18}/></div>
-             <input type="text" value={myCode} onChange={e => setMyCode(e.target.value.toUpperCase())} placeholder="MY CODE" className="w-full bg-transparent py-4 font-black font-mono text-xs tracking-widest outline-none text-slate-800" />
+             <input type="text" value={myCode} onChange={e => setMyCode(e.target.value.toUpperCase())} placeholder="MY CODE" className="w-full bg-transparent py-4 font-mono text-xs tracking-widest outline-none" />
           </div>
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-1 flex items-center">
+          <div className="bg-slate-50 border rounded-2xl p-1 flex items-center">
              <div className="p-3 text-slate-400"><Lock size={18}/></div>
-             <input type="text" value={targetCode} onChange={e => setTargetCode(e.target.value.toUpperCase())} placeholder="TARGET CODE" className="w-full bg-transparent py-4 font-black font-mono text-xs tracking-widest outline-none text-slate-800" />
+             <input type="text" value={targetCode} onChange={e => setTargetCode(e.target.value.toUpperCase())} placeholder="TARGET CODE" className="w-full bg-transparent py-4 font-mono text-xs tracking-widest outline-none" />
+          </div>
+          <div className="bg-blue-50/50 border border-blue-100 rounded-2xl p-1 flex items-center">
+             <div className="p-3 text-blue-400"><Key size={18}/></div>
+             <input type="password" value={sharedKey} onChange={e => setSharedKey(e.target.value)} placeholder="SHARED SECRET KEY" className="w-full bg-transparent py-4 font-bold text-xs outline-none text-blue-900" />
           </div>
           <button 
-            onClick={async () => { const res = await request<any>(apiBase, '/api/add-friend', 'POST', { myCode, targetCode }); if (res.code === 200) setIsPaired(true); }} 
-            className="w-full bg-blue-600 text-white py-5 rounded-3xl font-black text-sm uppercase tracking-widest shadow-xl shadow-blue-200 active:scale-[0.98] transition-all"
+            onClick={async () => { 
+              if(!myCode || !targetCode || !sharedKey) return;
+              const res = await request<any>(apiBase, '/api/add-friend', 'POST', { myCode, targetCode }); 
+              if (res.code === 200) setIsPaired(true); 
+            }} 
+            className="w-full bg-blue-600 text-white py-5 rounded-3xl font-black uppercase tracking-widest active:scale-[0.98] transition-all shadow-lg"
           >
-            Establish Link
+            Establish Secure Link
           </button>
         </div>
       </div>
