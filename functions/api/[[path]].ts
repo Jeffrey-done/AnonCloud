@@ -32,7 +32,6 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
     return res;
   };
 
-  // 生成更健壮的唯一 ID
   const generateMessageId = () => `MSG-${Date.now()}-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
 
   // --- ROOM CHAT ENDPOINTS ---
@@ -45,20 +44,19 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
 
   if (path === "/api/send-msg") {
     try {
-      const { roomCode, msg, type = 'text', burn = false } = await request.json();
+      const { roomCode, msg, type = 'text' } = await request.json();
       const key = `room:msg:${roomCode}`;
       const rawData = await kv.get(key);
       if (rawData === null) return new Response(JSON.stringify({ code: 404, msg: "房间不存在" }), { headers: corsHeaders });
       
       const data = JSON.parse(rawData);
       data.push({ 
-        id: generateMessageId(), // 使用更健壮的 ID
+        id: generateMessageId(),
         sender: 'anonymous', 
         time: new Date().toLocaleTimeString('zh-CN', { hour12: false }), 
         timestamp: Date.now(),
         type,
         content: msg,
-        burn,
         read: false
       });
       // Limit message history to 50
@@ -77,32 +75,8 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
     if (!rawData) return new Response(JSON.stringify({ code: 200, data: [] }), { headers: corsHeaders });
 
     let data = JSON.parse(rawData);
-    const now = Date.now();
-    let needsUpdate = false;
-
-    // Filter out expired burn messages
-    const filteredData = data.filter((m: any) => {
-      if (m.burn && m.expireAt && now > m.expireAt) {
-        needsUpdate = true;
-        return false;
-      }
-      return true;
-    });
-
-    // Handle "burning" trigger: if a burn message is seen for the first time
-    const processedData = filteredData.map((m: any) => {
-      if (m.burn && !m.expireAt) {
-        m.expireAt = now + 30000; // 30s fuse starts now
-        needsUpdate = true;
-      }
-      return m;
-    });
-
-    if (needsUpdate) {
-      await kv.put(key, JSON.stringify(processedData), { expirationTtl: 43200 });
-    }
-
-    return new Response(JSON.stringify({ code: 200, data: processedData }), { headers: corsHeaders });
+    // 移除了过期的过滤逻辑，保持消息在 KV 过期时间内的稳定存在
+    return new Response(JSON.stringify({ code: 200, data }), { headers: corsHeaders });
   }
 
   // --- FRIEND CHAT ENDPOINTS ---

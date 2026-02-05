@@ -6,7 +6,7 @@ import ProtocolInfo from './ProtocolInfo';
 import QRCode from 'qrcode';
 import { 
   Send, Copy, CheckCircle2, Image as ImageIcon, 
-  Smile, X, AlertCircle, Loader2, Lock, Unlock, HelpCircle, Zap, History, Mic, StopCircle, Play, Pause, Volume2, ShieldAlert, Flame, ShieldCheck, QrCode, Share2
+  Smile, X, AlertCircle, Loader2, Lock, Unlock, HelpCircle, Zap, History, Mic, StopCircle, Play, Pause, ShieldAlert, ShieldCheck, QrCode
 } from 'lucide-react';
 
 const EMOJIS = ['😀', '😂', '😍', '🤔', '😎', '🔥', '✨', '👍', '🙏', '❤️', '🎉', '👋', '👀', '🌚', '🤫', '💀'];
@@ -72,11 +72,9 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   
   const [cryptoKey, setCryptoKey] = useState<CryptoKey | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  // 强化缓存键：ID + 内容摘要，防止 ID 缺失导致的重复
   const decryptedCache = useRef<Record<string, string>>({});
   
   const [inputMsg, setInputMsg] = useState<string>('');
-  const [isBurnMode, setIsBurnMode] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
@@ -113,7 +111,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
       setIsInitializing(true);
       const key = await deriveKey(activeRoom, password);
       setCryptoKey(key);
-      decryptedCache.current = {}; // 切换房间时清空缓存
+      decryptedCache.current = {}; 
       setError(null);
     } catch (e: any) {
       setError('加密初始化失败');
@@ -148,21 +146,15 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     const res = await request<any[]>(apiBase, `/api/get-msg?roomCode=${activeRoom}`);
     if (res.code === 200 && res.data) {
       const decryptedMsgs = await Promise.all(res.data.map(async (m) => {
-        // 使用更安全的复合缓存键
         const cacheKey = `${m.id || 'NOID'}-${m.content.substring(0, 20)}`;
-        
         if (decryptedCache.current[cacheKey]) {
           return { ...m, content: decryptedCache.current[cacheKey] };
         }
-        
         const decrypted = await decryptContent(cryptoKey, m.content);
         const finalContent = decrypted !== null ? decrypted : '🔒 [解密失败]';
-        
-        // 只有解密成功且有 ID 才缓存
         if (decrypted !== null && m.id) {
           decryptedCache.current[cacheKey] = finalContent;
         }
-        
         return { ...m, content: finalContent };
       }));
       setMessages(decryptedMsgs);
@@ -195,12 +187,10 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
       const res = await request<any>(apiBase, '/api/send-msg', 'POST', { 
         roomCode: activeRoom, 
         msg: encrypted, 
-        type,
-        burn: isBurnMode
+        type
       });
       
       if (res.code === 200) {
-        if (isBurnMode) setIsBurnMode(false);
         fetchMessages();
       } else {
         setError(res.msg || '发送失败');
@@ -293,27 +283,10 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
       return <img src={m.content} className="rounded-2xl max-w-full max-h-[300px] object-cover cursor-zoom-in shadow-sm hover:brightness-95 transition-all" alt="media" onClick={() => setPreviewImage(m.content)} />;
     }
 
-    // 大表情识别渲染
     const isEmoji = isOnlyEmoji(m.content);
 
     return (
       <div className="flex flex-col">
-        {m.burn && (
-          <div className="flex items-center justify-between mb-3 bg-amber-500/10 px-3 py-1.5 rounded-full">
-            <div className="flex items-center space-x-1.5 text-amber-600">
-              <Flame size={12} fill="currentColor" className="animate-pulse" />
-              <span className="text-[9px] font-black uppercase tracking-wider">Self-Destruct</span>
-            </div>
-            {m.expireAt && (
-               <div className="h-1 w-16 bg-slate-200 rounded-full overflow-hidden">
-                 <div 
-                   className="h-full bg-amber-500 transition-all duration-1000 ease-linear" 
-                   style={{ width: `${Math.max(0, ((m.expireAt - Date.now()) / 30000) * 100)}%` }}
-                 />
-               </div>
-            )}
-          </div>
-        )}
         <p className={`${isEmoji ? 'text-[48px] py-2' : 'text-[14px] leading-relaxed'} break-all whitespace-pre-wrap font-medium text-slate-800`}>
           {m.content}
         </p>
@@ -397,13 +370,12 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
             const isEmoji = isOnlyEmoji(m.content);
             return (
               <div key={m.id || Math.random()} className="flex flex-col items-start animate-in fade-in slide-in-from-bottom-3 duration-500">
-                <div className={`relative px-5 py-4 transition-all duration-500 ${isEmoji ? 'bg-transparent border-none' : (m.burn ? 'bg-amber-50/40 border-amber-200 border rounded-[28px] rounded-tl-none ring-2 ring-amber-500/5' : 'bg-white border-slate-200/80 border rounded-[28px] rounded-tl-none')} text-slate-800 max-w-[85%] shadow-sm`}>
+                <div className={`relative px-5 py-4 transition-all duration-500 ${isEmoji ? 'bg-transparent border-none' : 'bg-white border-slate-200/80 border rounded-[28px] rounded-tl-none'} text-slate-800 max-w-[85%] shadow-sm`}>
                   {renderMessageContent(m)}
                 </div>
                 {!isEmoji && (
                   <div className="flex items-center space-x-2 mt-2 ml-1">
                     <span className="text-[9px] font-black text-slate-300 uppercase">{m.time}</span>
-                    {m.burn && <div className="w-1 h-1 bg-amber-400 rounded-full animate-ping" />}
                   </div>
                 )}
               </div>
@@ -424,7 +396,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           )}
           
           <div className="relative flex flex-col space-y-3">
-            <div className={`flex items-center p-2 rounded-[32px] border transition-all duration-500 bg-white shadow-2xl ${isBurnMode ? 'border-amber-400 ring-8 ring-amber-400/5 shadow-amber-200/40' : 'border-slate-200 shadow-slate-200/30'}`}>
+            <div className={`flex items-center p-2 rounded-[32px] border border-slate-200 transition-all duration-500 bg-white shadow-2xl shadow-slate-200/30`}>
               <button 
                 onMouseDown={startRecording}
                 onMouseUp={stopRecording}
@@ -440,24 +412,17 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
                 value={inputMsg}
                 onChange={(e) => setInputMsg(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !loading && sendMessage()}
-                placeholder={isRecording ? "Listening..." : (isBurnMode ? "Burning message..." : "End-to-end encrypted...")}
+                placeholder={isRecording ? "Listening..." : "End-to-end encrypted..."}
                 className="flex-1 min-w-0 bg-transparent px-2 py-4 text-[16px] outline-none font-medium text-slate-900"
                 disabled={loading}
               />
               <div className="flex items-center space-x-1.5 pr-2">
-                <button 
-                  onClick={() => setIsBurnMode(!isBurnMode)} 
-                  className={`p-3 rounded-full transition-all group relative ${isBurnMode ? 'text-amber-500 bg-amber-50' : 'text-slate-300 hover:text-amber-500'}`}
-                  title="閱後即焚模式"
-                >
-                  <Flame size={22} fill={isBurnMode ? "currentColor" : "none"} className={isBurnMode ? 'animate-pulse' : ''} />
-                </button>
                 <button onClick={() => fileInputRef.current?.click()} className="p-3 text-slate-300 hover:text-blue-600 transition-colors"><ImageIcon size={22} /></button>
                 <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*,audio/*" onChange={handleFileUpload} />
                 <button 
                   onClick={() => sendMessage()} 
                   disabled={loading || !inputMsg.trim()}
-                  className={`p-4 rounded-2xl shadow-xl active:scale-95 disabled:opacity-20 transition-all ${isBurnMode ? 'bg-amber-600' : 'bg-slate-900'} text-white`}
+                  className={`p-4 rounded-2xl shadow-xl active:scale-95 disabled:opacity-20 transition-all bg-slate-900 text-white`}
                 >
                   {loading ? <Loader2 size={22} className="animate-spin" /> : <Send size={22} strokeWidth={2.5} />}
                 </button>

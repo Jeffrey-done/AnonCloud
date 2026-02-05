@@ -1,4 +1,3 @@
-
 export type MessageType = 'text' | 'image' | 'video' | 'audio';
 
 export interface Message {
@@ -9,7 +8,6 @@ export interface Message {
   type: MessageType;
   content: string; // 文本内容或 Base64 媒体数据
   read: boolean;
-  burn?: boolean; // 阅后即焚标记
 }
 
 export interface SavedRoom {
