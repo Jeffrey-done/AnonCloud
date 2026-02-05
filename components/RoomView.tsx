@@ -1,15 +1,59 @@
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Message, MessageType, SavedRoom } from '../types';
 import { request } from '../services/api';
-import { deriveKey, encryptContent, decryptContent, isCryptoSupported } from '../services/crypto';
+import { deriveKey, encryptContent, decryptContent } from '../services/crypto';
 import ProtocolInfo from './ProtocolInfo';
+import QRCode from 'qrcode';
 import { 
-  Send, PlusCircle, Copy, CheckCircle2, Image as ImageIcon, 
-  Smile, X, Maximize2, AlertCircle, Loader2, Lock, Unlock, HelpCircle, Zap, History, Mic, StopCircle, Play, Pause, Volume2, ShieldAlert, Flame, ShieldCheck, QrCode
+  Send, Copy, CheckCircle2, Image as ImageIcon, 
+  Smile, X, AlertCircle, Loader2, Lock, Unlock, HelpCircle, Zap, History, Mic, StopCircle, Play, Pause, Volume2, ShieldAlert, Flame, ShieldCheck, QrCode, Share2
 } from 'lucide-react';
 
-const EMOJIS = ['😀', '😂', '😍', '🤔', '😎', '🙄', '🔥', '✨', '👍', '🙏', '❤️', '🎉', '👋', '👀', '🌚', '🤫'];
+const EMOJIS = ['😀', '😂', '😍', '🤔', '😎', '🔥', '✨', '👍', '🙏', '❤️', '🎉', '👋', '👀', '🌚', '🤫', '💀'];
+
+const AudioPlayer: React.FC<{ src: string }> = ({ src }) => {
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  const togglePlay = () => {
+    if (!audioRef.current) return;
+    if (playing) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play();
+    }
+    setPlaying(!playing);
+  };
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const updateProgress = () => {
+      setProgress((audio.currentTime / audio.duration) * 100);
+    };
+    const onEnded = () => setPlaying(false);
+    audio.addEventListener('timeupdate', updateProgress);
+    audio.addEventListener('ended', onEnded);
+    return () => {
+      audio.removeEventListener('timeupdate', updateProgress);
+      audio.removeEventListener('ended', onEnded);
+    };
+  }, []);
+
+  return (
+    <div className="flex items-center space-x-3 bg-slate-50/50 p-3 rounded-2xl border border-slate-100 min-w-[200px]">
+      <button onClick={togglePlay} className="p-2 bg-blue-600 text-white rounded-full hover:scale-105 active:scale-95 transition-transform">
+        {playing ? <Pause size={16} fill="currentColor"/> : <Play size={16} className="ml-0.5" fill="currentColor"/>}
+      </button>
+      <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden relative">
+        <div className="h-full bg-blue-500 transition-all duration-100" style={{ width: `${progress}%` }} />
+      </div>
+      <span className="text-[10px] font-black text-slate-400 uppercase">Vox</span>
+      <audio ref={audioRef} src={src} className="hidden" />
+    </div>
+  );
+};
 
 const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [roomCode, setRoomCode] = useState<string>(() => localStorage.getItem('anon_last_room_input') || '');
@@ -32,7 +76,15 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [copied, setCopied] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showProtocol, setShowProtocol] = useState(false);
+  const [showShare, setShowShare] = useState(false);
+  const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
   
+  // Recording State
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -58,7 +110,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
       decryptedCache.current = {}; 
       setError(null);
     } catch (e: any) {
-      setError('加密初始化失败，请确保环境安全');
+      setError('加密初始化失败');
     } finally {
       setIsInitializing(false);
     }
@@ -84,19 +136,13 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     });
   };
 
-  const handleQuickJoin = (room: SavedRoom) => {
-    setRoomCode(room.code);
-    setPassword(room.pass);
-    setActiveRoom(room.code);
-  };
-
   const fetchMessages = useCallback(async () => {
     if (!activeRoom || !cryptoKey) return;
 
     const res = await request<any[]>(apiBase, `/api/get-msg?roomCode=${activeRoom}`);
     if (res.code === 200 && res.data) {
       const decryptedMsgs = await Promise.all(res.data.map(async (m) => {
-        const cacheKey = m.id || `legacy-${m.timestamp}`;
+        const cacheKey = m.id;
         
         if (decryptedCache.current[cacheKey]) {
           return { ...m, content: decryptedCache.current[cacheKey] };
@@ -168,160 +214,301 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     e.target.value = '';
   };
 
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+      
+      recorder.ondataavailable = (e) => audioChunksRef.current.push(e.data);
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          await sendMessage(e.target?.result as string, 'audio');
+        };
+        reader.readAsDataURL(audioBlob);
+        stream.getTracks().forEach(t => t.stop());
+      };
+      
+      recorder.start();
+      setIsRecording(true);
+    } catch (e) {
+      setError('无法访问麦克风');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const handleQuickJoin = (room: SavedRoom) => {
+    setRoomCode(room.code);
+    setPassword(room.pass);
+    setActiveRoom(room.code);
+  };
+
+  const generateShareUrl = async () => {
+    const url = `${window.location.origin}${window.location.pathname}#r=${activeRoom}&p=${password}`;
+    try {
+      const qrDataUrl = await QRCode.toDataURL(url, { width: 400, margin: 2 });
+      setQrCodeUrl(qrDataUrl);
+      setShowShare(true);
+    } catch (err) {
+      setError('生成二维码失败');
+    }
+  };
+
   const renderMessageContent = (m: any) => {
-    const content = m.content;
-    if (content === '🔒 [解密失败]') {
+    if (m.content === '🔒 [解密失败]') {
       return (
-        <div className="flex items-center space-x-2 text-red-400 p-1">
+        <div className="flex items-center space-x-2 text-red-500/80 p-1">
           <ShieldAlert size={14} />
-          <span className="text-[11px] font-black uppercase">密钥错误</span>
+          <span className="text-[11px] font-black uppercase">Decryption Failed</span>
         </div>
       );
     }
     
-    if (m.type === 'audio' || content.startsWith('data:audio/')) {
-       return (
-         <div className="flex items-center space-x-2 bg-slate-50 p-2 rounded-xl">
-           <Play size={14} fill="currentColor"/>
-           <div className="h-1 w-24 bg-slate-200 rounded-full" />
-           <span className="text-[10px] font-bold">SECURE</span>
-         </div>
-       );
+    if (m.type === 'audio' || m.content.startsWith('data:audio/')) {
+       return <AudioPlayer src={m.content} />;
     }
 
-    if (m.type === 'image' || content.startsWith('data:image/')) {
-      return <img src={content} className="rounded-2xl max-w-full max-h-[300px] object-cover cursor-zoom-in shadow-sm" alt="media" onClick={() => setPreviewImage(content)} />;
+    if (m.type === 'image' || m.content.startsWith('data:image/')) {
+      return <img src={m.content} className="rounded-2xl max-w-full max-h-[300px] object-cover cursor-zoom-in shadow-sm hover:brightness-95 transition-all" alt="media" onClick={() => setPreviewImage(m.content)} />;
     }
 
     return (
       <div className="flex flex-col">
         {m.burn && (
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-3 bg-amber-500/10 px-3 py-1.5 rounded-full">
             <div className="flex items-center space-x-1.5 text-amber-600">
               <Flame size={12} fill="currentColor" className="animate-pulse" />
-              <span className="text-[9px] font-black uppercase tracking-wider">销毁中</span>
+              <span className="text-[9px] font-black uppercase tracking-wider">Self-Destruct</span>
             </div>
             {m.expireAt && (
-               <div className="h-1 w-12 bg-slate-100 rounded-full overflow-hidden">
+               <div className="h-1 w-16 bg-slate-200 rounded-full overflow-hidden">
                  <div 
-                   className="h-full bg-amber-400 transition-all duration-1000 ease-linear" 
+                   className="h-full bg-amber-500 transition-all duration-1000 ease-linear" 
                    style={{ width: `${Math.max(0, ((m.expireAt - Date.now()) / 30000) * 100)}%` }}
                  />
                </div>
             )}
           </div>
         )}
-        <p className="text-[14px] leading-relaxed break-all whitespace-pre-wrap font-medium">{m.content}</p>
+        <p className="text-[14px] leading-relaxed break-all whitespace-pre-wrap font-medium text-slate-800">{m.content}</p>
       </div>
     );
   };
 
   if (activeRoom) {
     return (
-      <div className="flex flex-col h-full animate-in fade-in duration-500 overflow-hidden">
+      <div className="flex flex-col h-full animate-in fade-in duration-500 overflow-hidden relative">
+        {previewImage && (
+          <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-xl flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
+            <img src={previewImage} className="max-w-full max-h-full rounded-2xl shadow-2xl animate-in zoom-in-95" alt="preview" />
+            <button className="absolute top-6 right-6 p-4 text-white bg-white/10 rounded-full backdrop-blur-md hover:bg-white/20">
+              <X size={24} />
+            </button>
+          </div>
+        )}
+
+        {showShare && (
+          <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4" onClick={() => setShowShare(false)}>
+            <div className="bg-white p-8 rounded-[40px] shadow-2xl max-w-sm w-full text-center space-y-6 animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-black text-slate-900 uppercase tracking-widest text-sm">Room Protocol</h3>
+                <button onClick={() => setShowShare(false)} className="p-2 hover:bg-slate-100 rounded-full"><X size={18}/></button>
+              </div>
+              <img src={qrCodeUrl} className="w-full h-auto rounded-3xl border border-slate-100 shadow-sm" alt="QR Code" />
+              <div className="space-y-3">
+                <p className="text-xs text-slate-400 font-medium leading-relaxed">Scan to join this secure room instantly. The password is encoded in the fragment for one-tap sync.</p>
+                <button 
+                  onClick={() => { 
+                    const url = `${window.location.origin}${window.location.pathname}#r=${activeRoom}&p=${password}`;
+                    navigator.clipboard.writeText(url);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }}
+                  className="w-full flex items-center justify-center space-x-2 bg-slate-900 text-white py-4 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-slate-200"
+                >
+                  {copied ? <CheckCircle2 size={18} className="text-emerald-400" /> : <Copy size={18} />}
+                  <span>{copied ? 'Link Copied' : 'Copy Room Link'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Room Header */}
-        <div className="flex-shrink-0 px-4 py-3 bg-white/70 backdrop-blur-md border-b border-slate-200/60 z-10 flex items-center justify-between">
+        <div className="flex-shrink-0 px-5 py-4 bg-white/70 backdrop-blur-md border-b border-slate-200/60 z-10 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <div 
-              className="w-8 h-8 rounded-xl shadow-inner border border-white/50" 
+              className="w-10 h-10 rounded-2xl shadow-inner border-2 border-white" 
               style={{ background: visualFingerprint || '#000' }}
             />
             <div>
-               <h3 className="text-xs font-black font-mono tracking-widest text-slate-800 leading-none">{activeRoom}</h3>
-               <div className="flex items-center space-x-1 mt-0.5">
-                 <ShieldCheck size={10} className="text-emerald-500" />
-                 <span className="text-[8px] font-black text-slate-400 uppercase">E2EE Active</span>
+               <h3 className="text-sm font-black font-mono tracking-widest text-slate-800 leading-none uppercase">{activeRoom}</h3>
+               <div className="flex items-center space-x-1.5 mt-1">
+                 <ShieldCheck size={12} className="text-emerald-500" />
+                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">E2E Secure Channel</span>
                </div>
             </div>
           </div>
           <div className="flex items-center space-x-1">
-            <button onClick={() => { navigator.clipboard.writeText(activeRoom); setCopied(true); setTimeout(() => setCopied(false), 2000); }} className="p-2 text-slate-400 hover:text-slate-600">
-               {copied ? <CheckCircle2 size={18} className="text-emerald-500" /> : <QrCode size={18} />}
+            <button onClick={generateShareUrl} className="p-2.5 text-slate-400 hover:text-blue-500 transition-colors">
+               <QrCode size={18} />
             </button>
-            <button onClick={() => { setActiveRoom(''); setCryptoKey(null); }} className="p-2 text-slate-400 hover:text-red-500 transition-colors"><X size={20} /></button>
+            <button onClick={() => setShowProtocol(true)} className="p-2.5 text-slate-400 hover:text-blue-500"><HelpCircle size={18}/></button>
+            <button onClick={() => { setActiveRoom(''); setCryptoKey(null); }} className="p-2.5 text-slate-400 hover:text-red-500 transition-colors"><X size={20} /></button>
           </div>
         </div>
 
         {/* Message List */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6 space-y-6 bg-slate-50/20" onClick={() => setShowEmoji(false)}>
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-8 space-y-6 bg-[#FDFDFD]" onClick={() => setShowEmoji(false)}>
+          {messages.length === 0 && (
+            <div className="h-full flex flex-col items-center justify-center opacity-30 select-none">
+              <Lock size={48} className="text-slate-300 mb-4" />
+              <p className="text-xs font-black uppercase tracking-[0.3em]">Channel Established</p>
+              <p className="text-[10px] mt-2">No data recorded on server</p>
+            </div>
+          )}
           {messages.map((m) => (
-            <div key={m.id} className="flex flex-col items-start animate-in slide-in-from-bottom-2 duration-300">
-              <div className={`relative px-4 py-3 rounded-[22px] rounded-tl-none border shadow-sm transition-all duration-500 ${m.burn ? 'bg-amber-50/30 border-amber-100 ring-1 ring-amber-50' : 'bg-white border-slate-200/80'} text-slate-800 max-w-[85%]`}>
+            <div key={m.id} className="flex flex-col items-start animate-in slide-in-from-bottom-3 duration-500">
+              <div className={`relative px-5 py-4 rounded-[28px] rounded-tl-none border shadow-sm transition-all duration-500 ${m.burn ? 'bg-amber-50/40 border-amber-200 ring-2 ring-amber-500/5' : 'bg-white border-slate-200/80'} text-slate-800 max-w-[85%]`}>
                 {renderMessageContent(m)}
               </div>
-              <span className="text-[8px] font-black text-slate-300 uppercase mt-1.5 ml-1">{m.time}</span>
+              <div className="flex items-center space-x-2 mt-2 ml-1">
+                <span className="text-[9px] font-black text-slate-300 uppercase">{m.time}</span>
+                {m.burn && <div className="w-1 h-1 bg-amber-400 rounded-full animate-ping" />}
+              </div>
             </div>
           ))}
         </div>
 
         {/* Input Area */}
-        <div className="flex-shrink-0 px-4 pb-32 pt-2 bg-gradient-to-t from-white via-white to-transparent">
-          <div className="relative flex flex-col space-y-2">
-            <div className={`flex items-center p-1.5 rounded-[30px] border transition-all duration-300 bg-white shadow-xl ${isBurnMode ? 'border-amber-400 ring-4 ring-amber-400/10 shadow-amber-100' : 'border-slate-200 shadow-slate-200/40'}`}>
-              <button onClick={() => setShowEmoji(!showEmoji)} className="p-3 text-slate-400 hover:text-blue-500 transition-colors"><Smile size={22} /></button>
+        <div className="flex-shrink-0 px-4 pb-32 pt-4 bg-gradient-to-t from-white via-white to-transparent">
+          {showEmoji && (
+            <div className="absolute bottom-[280px] left-4 right-4 bg-white/95 backdrop-blur-xl border border-slate-200 p-4 rounded-[32px] shadow-2xl z-50 grid grid-cols-8 gap-2 animate-in slide-in-from-bottom-4">
+              {EMOJIS.map(e => (
+                <button key={e} onClick={() => { setInputMsg(p => p + e); setShowEmoji(false); }} className="text-2xl p-2.5 hover:bg-slate-50 rounded-2xl transition-all hover:scale-110 active:scale-90">
+                  {e}
+                </button>
+              ))}
+            </div>
+          )}
+          
+          <div className="relative flex flex-col space-y-3">
+            <div className={`flex items-center p-2 rounded-[32px] border transition-all duration-500 bg-white shadow-2xl ${isBurnMode ? 'border-amber-400 ring-8 ring-amber-400/5 shadow-amber-200/40' : 'border-slate-200 shadow-slate-200/30'}`}>
+              <button 
+                onMouseDown={startRecording}
+                onMouseUp={stopRecording}
+                onTouchStart={startRecording}
+                onTouchEnd={stopRecording}
+                className={`p-3.5 transition-all rounded-full ${isRecording ? 'text-red-500 bg-red-50 recording-pulse' : 'text-slate-400 hover:text-blue-500'}`}
+              >
+                {isRecording ? <StopCircle size={24} /> : <Mic size={24} />}
+              </button>
+              <button onClick={() => setShowEmoji(!showEmoji)} className="p-3.5 text-slate-400 hover:text-blue-500 transition-colors"><Smile size={24} /></button>
               <input
                 type="text"
                 value={inputMsg}
                 onChange={(e) => setInputMsg(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !loading && sendMessage()}
-                placeholder={isBurnMode ? "发送即焚消息..." : "发送安全消息..."}
-                className="flex-1 min-w-0 bg-transparent px-2 py-3 text-[15px] outline-none"
+                placeholder={isRecording ? "Listening..." : (isBurnMode ? "Burning message..." : "End-to-end encrypted...")}
+                className="flex-1 min-w-0 bg-transparent px-2 py-4 text-[16px] outline-none font-medium text-slate-900"
                 disabled={loading}
               />
-              <div className="flex items-center space-x-1 pr-1">
+              <div className="flex items-center space-x-1.5 pr-2">
                 <button 
                   onClick={() => setIsBurnMode(!isBurnMode)} 
-                  className={`p-2.5 rounded-full transition-all group relative ${isBurnMode ? 'text-amber-500 bg-amber-50' : 'text-slate-300 hover:text-amber-500'}`}
+                  className={`p-3 rounded-full transition-all group relative ${isBurnMode ? 'text-amber-500 bg-amber-50' : 'text-slate-300 hover:text-amber-500'}`}
+                  title="閱後即焚模式"
                 >
-                  <Flame size={20} fill={isBurnMode ? "currentColor" : "none"} className={isBurnMode ? 'animate-pulse' : ''} />
-                  {isBurnMode && <span className="absolute -top-1 -right-1 w-2 h-2 bg-amber-500 rounded-full animate-ping" />}
+                  <Flame size={22} fill={isBurnMode ? "currentColor" : "none"} className={isBurnMode ? 'animate-pulse' : ''} />
                 </button>
-                <button onClick={() => fileInputRef.current?.click()} className="p-2.5 text-slate-300 hover:text-blue-500 transition-colors"><ImageIcon size={20} /></button>
+                <button onClick={() => fileInputRef.current?.click()} className="p-3 text-slate-300 hover:text-blue-600 transition-colors"><ImageIcon size={22} /></button>
                 <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*,audio/*" onChange={handleFileUpload} />
                 <button 
                   onClick={() => sendMessage()} 
                   disabled={loading || !inputMsg.trim()}
-                  className={`p-3 rounded-full shadow-lg active:scale-95 disabled:opacity-20 transition-all ${isBurnMode ? 'bg-amber-600' : 'bg-slate-900'} text-white`}
+                  className={`p-4 rounded-2xl shadow-xl active:scale-95 disabled:opacity-20 transition-all ${isBurnMode ? 'bg-amber-600' : 'bg-slate-900'} text-white`}
                 >
-                  {loading ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
+                  {loading ? <Loader2 size={22} className="animate-spin" /> : <Send size={22} strokeWidth={2.5} />}
                 </button>
               </div>
             </div>
           </div>
         </div>
+        {showProtocol && <ProtocolInfo onClose={() => setShowProtocol(false)} />}
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-y-auto px-4 pt-6 pb-32 space-y-6">
-      <div className="bg-white p-10 rounded-[48px] border border-slate-200/60 shadow-2xl text-center space-y-8 animate-in slide-in-from-top-4">
-         <div className="relative mx-auto bg-slate-900 w-20 h-20 rounded-[30px] flex items-center justify-center text-white shadow-xl">
-            <Lock size={36} />
-            <div className="absolute -top-2 -right-2 bg-blue-500 p-1.5 rounded-full ring-4 ring-white shadow-lg"><Zap size={12} className="text-white fill-white" /></div>
+    <div className="h-full overflow-y-auto px-5 pt-8 pb-32 space-y-8 bg-[#F8FAFC]">
+      <div className="bg-white p-10 rounded-[56px] border border-slate-200/50 shadow-2xl text-center space-y-8 animate-in slide-in-from-top-6 duration-700">
+         <div className="relative mx-auto bg-slate-900 w-24 h-24 rounded-[40px] flex items-center justify-center text-white shadow-2xl rotate-3 hover:rotate-0 transition-transform duration-500">
+            <Lock size={44} />
+            <div className="absolute -top-3 -right-3 bg-blue-600 p-2.5 rounded-full ring-8 ring-white shadow-xl"><Zap size={16} className="text-white fill-white" /></div>
          </div>
          <div>
-           <h2 className="text-2xl font-black text-slate-900 tracking-tight">AnonCloud Sync</h2>
-           <p className="text-slate-400 text-[11px] font-black uppercase tracking-[0.2em]">Zero Knowledge Protocol</p>
+           <h2 className="text-3xl font-black text-slate-900 tracking-tight leading-tight">Secure Sync</h2>
+           <p className="text-slate-400 text-[12px] font-black uppercase tracking-[0.4em] mt-3">Stateless Communications</p>
          </div>
-         {error && <div className="p-4 bg-red-50 border border-red-100 rounded-2xl text-red-600 text-xs font-bold animate-shake">{error}</div>}
+         {error && <div className="p-4 bg-red-50 border border-red-100 rounded-3xl text-red-600 text-xs font-black animate-shake flex items-center justify-center space-x-2"><AlertCircle size={14}/><span>{error}</span></div>}
          <button 
-          onClick={async () => { if(!password) { setError('请先设置加密密钥'); return; } setLoading(true); try { const res = await request<any>(apiBase, '/api/create-room'); if (res.code === 200) setActiveRoom(res.roomCode!); } finally { setLoading(false); } }}
-          className="w-full bg-slate-900 text-white py-4.5 rounded-[22px] font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all"
+          onClick={async () => { if(!password) { setError('Please set encryption key'); return; } setLoading(true); try { const res = await request<any>(apiBase, '/api/create-room'); if (res.code === 200) setActiveRoom(res.roomCode!); } finally { setLoading(false); } }}
+          className="w-full bg-slate-900 text-white py-5 rounded-[28px] font-black text-sm uppercase tracking-widest shadow-2xl shadow-slate-300 active:scale-95 transition-all flex items-center justify-center"
          >
-           {loading ? <Loader2 size={18} className="animate-spin" /> : '开启新加密空间'}
+           {loading ? <Loader2 size={20} className="animate-spin" /> : 'Deploy New Node'}
          </button>
       </div>
 
-      <div className="bg-white/90 backdrop-blur-xl p-8 rounded-[40px] border border-white shadow-xl space-y-5">
-         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 focus-within:ring-2 ring-blue-100 transition-all">
-               <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">房间码</label>
-               <input type="text" value={roomCode} onChange={e => setRoomCode(e.target.value.toUpperCase())} placeholder="6-CHAR" className="w-full bg-transparent font-black font-mono text-base outline-none" />
+      <div className="bg-white/80 backdrop-blur-2xl p-8 rounded-[48px] border border-white shadow-2xl space-y-6">
+         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div className="bg-slate-50/50 border border-slate-100 rounded-3xl px-6 py-5 focus-within:ring-4 ring-blue-50 transition-all">
+               <label className="text-[10px] font-black text-slate-400 uppercase block mb-2 tracking-widest">Entry Code</label>
+               <input type="text" value={roomCode} onChange={e => setRoomCode(e.target.value.toUpperCase())} placeholder="ROOM-ID" className="w-full bg-transparent font-black font-mono text-lg outline-none placeholder:text-slate-200" />
             </div>
-            <div className="bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 focus-within:ring-2 ring-blue-100 transition-all">
-               <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">加密密钥</label>
-               <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" className="w-full bg-transparent font-black text-base outline-none" />
+            <div className="bg-slate-50/50 border border-slate-100 rounded-3xl px-6 py-5 focus-within:ring-4 ring-blue-50 transition-all">
+               <label className="text-[10px] font-black text-slate-400 uppercase block mb-2 tracking-widest">Passphrase</label>
+               <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" className="w-full bg-transparent font-black text-lg outline-none placeholder:text-slate-200" />
             </div>
          </div>
-         <button onClick={() => { if(!roomCode || !password) return; setActiveRoom(roomCode.toUpperCase().trim()); }} className="w-full bg-blue-600 text-white py-4.5 rounded-[22px] font-black text-xs uppercase shadow-lg shadow-blue
+         <button onClick={() => { if(!roomCode || !password) return; setActiveRoom(roomCode.toUpperCase().trim()); }} className="w-full bg-blue-600 text-white py-5 rounded-[28px] font-black text-sm uppercase shadow-2xl shadow-blue-200 hover:bg-blue-700 active:scale-95 transition-all">
+            Join Secure Environment
+         </button>
+      </div>
+
+      {savedRooms.length > 0 && (
+        <div className="space-y-4 px-2">
+           <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center space-x-2">
+             <History size={14} />
+             <span>Active Fragments</span>
+           </h4>
+           <div className="grid grid-cols-2 gap-3">
+              {savedRooms.map(room => (
+                <button 
+                  key={room.code} 
+                  onClick={() => handleQuickJoin(room)}
+                  className="bg-white border border-slate-100 p-4 rounded-[24px] text-left hover:border-blue-200 transition-all shadow-sm active:scale-95 group"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-black font-mono text-sm text-slate-800">{room.code}</span>
+                    <Unlock size={12} className="text-slate-300 group-hover:text-blue-500" />
+                  </div>
+                  <div className="mt-1 text-[8px] font-black text-slate-400 uppercase tracking-tighter">Verified Node</div>
+                </button>
+              ))}
+           </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default RoomView;

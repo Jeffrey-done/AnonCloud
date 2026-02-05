@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { TabType } from './types';
 import RoomView from './components/RoomView';
@@ -25,10 +24,27 @@ const App: React.FC = () => {
     localStorage.setItem('anon_chat_api_base', apiBase);
   }, [apiBase]);
 
+  // Handle URL fragment for sharing
+  useEffect(() => {
+    const handleHash = () => {
+      const hash = window.location.hash.substring(1);
+      if (hash) {
+        const params = new URLSearchParams(hash);
+        const r = params.get('r');
+        const p = params.get('p');
+        if (r) localStorage.setItem('anon_last_room_input', r);
+        if (p) localStorage.setItem('anon_last_room_pass', p);
+        // Clean hash to keep it private after parsing
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    };
+    handleHash();
+  }, []);
+
   return (
     <div className="h-[100dvh] flex flex-col bg-[#F8FAFC] overflow-hidden">
       {/* Header */}
-      <header className="bg-white/80 backdrop-blur-md border-b border-slate-200/60 flex-shrink-0">
+      <header className="bg-white/80 backdrop-blur-md border-b border-slate-200/60 flex-shrink-0 z-50">
         <div className="max-w-2xl mx-auto px-5 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-2 rounded-xl text-white shadow-lg shadow-blue-200/50">

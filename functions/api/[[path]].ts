@@ -33,6 +33,8 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
     return res;
   };
 
+  // --- ROOM CHAT ENDPOINTS ---
+
   if (path === "/api/create-room") {
     const code = generateCode(6);
     await kv.put(`room:msg:${code}`, "[]", { expirationTtl: 43200 });
@@ -55,10 +57,9 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
         type,
         content: msg,
         burn,
-        burnState: burn ? 'pending' : 'none', // pending: 未读, burning: 销毁中
         read: false
       });
-      // 保持消息队列长度
+      // Limit message history to 50
       if (data.length > 50) data.shift(); 
       await kv.put(key, JSON.stringify(data), { expirationTtl: 43200 });
       return new Response(JSON.stringify({ code: 200 }), { headers: corsHeaders });
@@ -77,7 +78,7 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
     const now = Date.now();
     let needsUpdate = false;
 
-    // 过滤逻辑：移除已超时的阅后即焚消息
+    // Filter out expired burn messages
     const filteredData = data.filter((m: any) => {
       if (m.burn && m.expireAt && now > m.expireAt) {
         needsUpdate = true;
@@ -86,11 +87,10 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
       return true;
     });
 
-    // 状态更新逻辑：如果消息是阅后即焚且从未被读取，标记“点燃”
+    // Handle "burning" trigger: if a burn message is seen for the first time
     const processedData = filteredData.map((m: any) => {
       if (m.burn && !m.expireAt) {
-        m.expireAt = now + 30000; // 30秒引信
-        m.burnState = 'burning';
+        m.expireAt = now + 30000; // 30s fuse starts now
         needsUpdate = true;
       }
       return m;
@@ -101,6 +101,96 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
     }
 
     return new Response(JSON.stringify({ code: 200, data: processedData }), { headers: corsHeaders });
+  }
+
+  // --- FRIEND CHAT ENDPOINTS ---
+
+  if (path === "/api/create-friend-code") {
+    const code = "UID-" + generateCode(8);
+    // Use the code as a key just to reserve it or store minimal profile if needed
+    await kv.put(`friend:id:${code}`, "active", { expirationTtl: 86400 * 7 });
+    return new Response(JSON.stringify({ code: 200, friendCode: code }), { headers: corsHeaders });
+  }
+
+  if (path === "/api/add-friend") {
+    try {
+      const { myCode, targetCode } = await request.json();
+      if (!myCode || !targetCode) return new Response(JSON.stringify({ code: 400, msg: "Codes required" }), { status: 400, headers: corsHeaders });
+      
+      // Check if both exist (optional, but good for validation)
+      const targetExists = await kv.get(`friend:id:${targetCode}`);
+      if (!targetExists) return new Response(JSON.stringify({ code: 404, msg: "目标身份不存在" }), { headers: corsHeaders });
+
+      // Create a deterministic pair key
+      const pairKey = [myCode, targetCode].sort().join(':');
+      const channelKey = `friend:msg:${pairKey}`;
+      
+      // Initialize channel if not exists
+      const existing = await kv.get(channelKey);
+      if (!existing) {
+        await kv.put(channelKey, "[]", { expirationTtl: 86400 * 3 }); // 3 days retention
+      }
+
+      return new Response(JSON.stringify({ code: 200, msg: "Pair established" }), { headers: corsHeaders });
+    } catch (e) {
+      return new Response(JSON.stringify({ code: 400, msg: "Invalid Request" }), { status: 400, headers: corsHeaders });
+    }
+  }
+
+  if (path === "/api/send-friend-msg") {
+    try {
+      const { myCode, targetCode, msg, type = 'text' } = await request.json();
+      const pairKey = [myCode, targetCode].sort().join(':');
+      const key = `friend:msg:${pairKey}`;
+      
+      const rawData = await kv.get(key);
+      let data = rawData ? JSON.parse(rawData) : [];
+      
+      data.push({ 
+        id: crypto.randomUUID(), 
+        sender: myCode, 
+        time: new Date().toLocaleTimeString('zh-CN', { hour12: false }), 
+        timestamp: Date.now(),
+        type,
+        content: msg,
+        read: false
+      });
+
+      if (data.length > 100) data.shift();
+      await kv.put(key, JSON.stringify(data), { expirationTtl: 86400 * 3 });
+      
+      return new Response(JSON.stringify({ code: 200 }), { headers: corsHeaders });
+    } catch (e) {
+      return new Response(JSON.stringify({ code: 400, msg: "Error sending message" }), { status: 400, headers: corsHeaders });
+    }
+  }
+
+  if (path === "/api/get-friend-msg") {
+    const myCode = url.searchParams.get("myCode");
+    const targetCode = url.searchParams.get("targetCode");
+    if (!myCode || !targetCode) return new Response(JSON.stringify({ code: 400 }), { headers: corsHeaders });
+
+    const pairKey = [myCode, targetCode].sort().join(':');
+    const key = `friend:msg:${pairKey}`;
+    const rawData = await kv.get(key);
+    
+    let data = rawData ? JSON.parse(rawData) : [];
+    
+    // Simple "read receipt" logic: mark target's messages as read
+    let changed = false;
+    const processed = data.map((m: any) => {
+      if (m.sender !== myCode && !m.read) {
+        m.read = true;
+        changed = true;
+      }
+      return m;
+    });
+
+    if (changed) {
+      await kv.put(key, JSON.stringify(processed), { expirationTtl: 86400 * 3 });
+    }
+
+    return new Response(JSON.stringify({ code: 200, data: processed }), { headers: corsHeaders });
   }
 
   return new Response(JSON.stringify({ code: 404, msg: "未找到接口" }), { status: 404, headers: corsHeaders });
