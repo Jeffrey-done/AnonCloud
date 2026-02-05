@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Message, MessageType, SavedRoom } from '../types';
 import { request } from '../services/api';
@@ -6,7 +7,7 @@ import ProtocolInfo from './ProtocolInfo';
 import QRCode from 'qrcode';
 import { 
   Send, Copy, CheckCircle2, Image as ImageIcon, 
-  Smile, X, AlertCircle, Loader2, Lock, Unlock, HelpCircle, Zap, History, Mic, StopCircle, Play, Pause, ShieldAlert, ShieldCheck, QrCode
+  Smile, X, AlertCircle, Loader2, Lock, Unlock, HelpCircle, Zap, History, Mic, StopCircle, Play, Pause, ShieldAlert, ShieldCheck, QrCode, Film
 } from 'lucide-react';
 
 const EMOJIS = ['😀', '😂', '😍', '🤔', '😎', '🔥', '✨', '👍', '🙏', '❤️', '🎉', '👋', '👀', '🌚', '🤫', '💀'];
@@ -15,6 +16,8 @@ const isOnlyEmoji = (text: string) => {
   const emojiRegex = /^(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])+$/g;
   return text.length <= 8 && emojiRegex.test(text.replace(/\s/g, ''));
 };
+
+const isDataUrl = (text: string) => text.startsWith('data:');
 
 const AudioPlayer: React.FC<{ src: string }> = ({ src }) => {
   const [playing, setPlaying] = useState(false);
@@ -83,7 +86,6 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 核心：处理 URL 分享逻辑
   useEffect(() => {
     const hash = window.location.hash.replace(/^#/, '');
     if (hash) {
@@ -94,7 +96,6 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
         setRoomCode(r.toUpperCase());
         setPassword(p);
         setActiveRoom(r.toUpperCase());
-        // 成功解析后清除 Hash 保护隐私
         window.history.replaceState(null, '', window.location.pathname);
       }
     }
@@ -227,10 +228,36 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
 
   const renderMessageContent = (m: any) => {
     if (m.content === '🔒 [解密失败]') return <div className="flex items-center space-x-2 text-red-500/80 p-1"><ShieldAlert size={14} /><span className="text-[11px] font-black uppercase">Decryption Failed</span></div>;
-    if (m.type === 'audio') return <AudioPlayer src={m.content} />;
-    if (m.type === 'image') return <img src={m.content} className="rounded-2xl max-w-full max-h-[300px] object-cover cursor-zoom-in shadow-sm" alt="media" onClick={() => setPreviewImage(m.content)} />;
-    const isEmoji = isOnlyEmoji(m.content);
-    return <p className={`${isEmoji ? 'text-[48px] py-2' : 'text-[14px] leading-relaxed'} break-all whitespace-pre-wrap font-medium text-slate-800`}>{m.content}</p>;
+    
+    // 强制检测是否为 Data URL 以防止类型标志错误
+    const content = m.content as string;
+    const isMedia = isDataUrl(content);
+
+    if (m.type === 'audio' || (isMedia && content.includes('audio/'))) {
+      return <AudioPlayer src={content} />;
+    }
+    
+    if (m.type === 'video' || (isMedia && content.includes('video/'))) {
+      return (
+        <div className="relative rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 shadow-sm max-w-full">
+          <video src={content} controls className="max-w-full max-h-[300px] block" />
+        </div>
+      );
+    }
+
+    if (m.type === 'image' || (isMedia && content.includes('image/'))) {
+      return (
+        <img 
+          src={content} 
+          className="rounded-2xl max-w-full max-h-[300px] object-cover cursor-zoom-in shadow-sm hover:opacity-90 transition-opacity" 
+          alt="media" 
+          onClick={() => setPreviewImage(content)} 
+        />
+      );
+    }
+    
+    const isEmoji = isOnlyEmoji(content);
+    return <p className={`${isEmoji ? 'text-[48px] py-2' : 'text-[14px] leading-relaxed'} break-all whitespace-pre-wrap font-medium text-slate-800`}>{content}</p>;
   };
 
   if (activeRoom) {
@@ -295,9 +322,10 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           {messages.length === 0 && <div className="h-full flex flex-col items-center justify-center opacity-30 select-none"><Lock size={48} className="text-slate-300 mb-4" /><p className="text-xs font-black uppercase tracking-[0.3em]">Channel Established</p></div>}
           {messages.map((m) => {
             const isEmoji = isOnlyEmoji(m.content);
+            const isMedia = isDataUrl(m.content) && !isEmoji;
             return (
               <div key={m.id || Math.random()} className="flex flex-col items-start animate-in fade-in slide-in-from-bottom-3 duration-500">
-                <div className={`relative px-5 py-4 transition-all duration-500 ${isEmoji ? 'bg-transparent border-none' : 'bg-white border-slate-200/80 border rounded-[28px] rounded-tl-none'} text-slate-800 max-w-[85%] shadow-sm`}>
+                <div className={`relative px-5 py-4 transition-all duration-500 ${isEmoji || isMedia ? 'bg-transparent border-none px-0' : 'bg-white border-slate-200/80 border rounded-[28px] rounded-tl-none'} text-slate-800 max-w-[85%] shadow-sm`}>
                   {renderMessageContent(m)}
                 </div>
                 {!isEmoji && <div className="flex items-center mt-2 ml-1"><span className="text-[9px] font-black text-slate-300 uppercase">{m.time}</span></div>}

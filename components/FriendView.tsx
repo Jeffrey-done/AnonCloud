@@ -6,6 +6,8 @@ import { Send, UserPlus, Fingerprint, Lock, Copy, CheckCircle2, Check, Image as 
 
 const EMOJIS = ['❤️', '✨', '🔥', '😂', '😭', '💀', '💯', '👌', '👀', '🤫', '🌹', '⚡'];
 
+const isDataUrl = (text: string) => text.startsWith('data:');
+
 const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [myCode, setMyCode] = useState<string>(() => localStorage.getItem('anon_my_friend_code') || '');
   const [targetCode, setTargetCode] = useState<string>(() => localStorage.getItem('anon_target_friend_code') || '');
@@ -71,6 +73,32 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     e.target.value = '';
   };
 
+  const renderMessageContent = (m: Message) => {
+    const content = m.content;
+    const isMedia = isDataUrl(content);
+
+    if (m.type === 'image' || (isMedia && content.includes('image/'))) {
+      return (
+        <img 
+          src={content} 
+          className="rounded-2xl max-w-full max-h-[300px] object-cover cursor-zoom-in" 
+          onClick={() => setPreviewImage(content)} 
+          alt="encrypted media"
+        />
+      );
+    }
+
+    if (m.type === 'video' || (isMedia && content.includes('video/'))) {
+      return (
+        <div className="rounded-2xl overflow-hidden bg-black/5 shadow-inner">
+          <video src={content} controls className="max-w-full max-h-[300px] block" />
+        </div>
+      );
+    }
+
+    return <p className={`text-[15px] leading-relaxed break-all whitespace-pre-wrap font-medium`}>{content}</p>;
+  };
+
   if (isPaired) {
     return (
       <div className="flex flex-col h-full animate-in fade-in duration-500 bg-[#FDFDFD]">
@@ -95,14 +123,11 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-8 space-y-6 scroll-smooth" onClick={() => setShowEmoji(false)}>
           {messages.map((m) => {
             const isMe = m.sender === myCode;
+            const isMedia = isDataUrl(m.content);
             return (
               <div key={m.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} animate-in fade-in duration-300`}>
-                <div className={`relative px-5 py-3.5 rounded-[28px] shadow-sm ${isMe ? 'bg-slate-900 rounded-tr-none text-white' : 'bg-white border border-slate-200/80 rounded-tl-none text-slate-800'} max-w-[85%]`}>
-                  {m.type === 'image' || m.content.startsWith('data:image/') ? (
-                    <img src={m.content} className="rounded-2xl max-w-full max-h-[300px] object-cover cursor-zoom-in" onClick={() => setPreviewImage(m.content)} />
-                  ) : (
-                    <p className={`text-[15px] leading-relaxed break-all whitespace-pre-wrap font-medium`}>{m.content}</p>
-                  )}
+                <div className={`relative px-5 py-3.5 rounded-[28px] shadow-sm ${isMedia ? 'bg-transparent shadow-none px-0' : (isMe ? 'bg-slate-900 rounded-tr-none text-white' : 'bg-white border border-slate-200/80 rounded-tl-none text-slate-800')} max-w-[85%]`}>
+                  {renderMessageContent(m)}
                 </div>
                 <div className={`flex items-center mt-2 space-x-1.5 px-1 ${isMe ? 'flex-row-reverse space-x-reverse' : ''}`}>
                   <span className="text-[9px] font-black text-slate-300 uppercase tracking-tighter">{m.time}</span>
