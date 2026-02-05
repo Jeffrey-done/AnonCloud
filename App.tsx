@@ -4,7 +4,7 @@ import { TabType } from './types';
 import RoomView from './components/RoomView';
 import FriendView from './components/FriendView';
 import SettingsView from './components/SettingsView';
-import { MessageSquare, Users, Settings, Shield, AlertCircle } from 'lucide-react';
+import { MessageSquare, Users, Settings, Shield } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>(TabType.ROOM);
@@ -13,7 +13,6 @@ const App: React.FC = () => {
 
   const [apiBase, setApiBase] = useState<string>(() => {
     const stored = localStorage.getItem('anon_chat_api_base');
-    // 迁移逻辑：如果存储的是旧的被封锁的域名，则强制重置
     if (stored && stored.includes('workers.dev')) {
       return DEFAULT_API;
     }
@@ -27,9 +26,9 @@ const App: React.FC = () => {
   }, [apiBase]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
+    <div className="h-[100dvh] flex flex-col bg-[#F8FAFC] overflow-hidden">
       {/* Header */}
-      <header className="bg-white/80 backdrop-blur-md border-b border-slate-200/60 sticky top-0 z-50">
+      <header className="bg-white/80 backdrop-blur-md border-b border-slate-200/60 flex-shrink-0">
         <div className="max-w-2xl mx-auto px-5 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-2 rounded-xl text-white shadow-lg shadow-blue-200/50">
@@ -56,18 +55,20 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 max-w-2xl w-full mx-auto px-4 pt-6 pb-28">
-        <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
-          {activeTab === TabType.ROOM && <RoomView apiBase={apiBase} />}
-          {activeTab === TabType.FRIEND && <FriendView apiBase={apiBase} />}
-          {activeTab === TabType.SETTINGS && <SettingsView apiBase={apiBase} setApiBase={setApiBase} defaultApi={DEFAULT_API} />}
-        </div>
+      {/* Main Content Area - Scrollable internally */}
+      <main className="flex-1 max-w-2xl w-full mx-auto relative overflow-hidden">
+        {activeTab === TabType.ROOM && <RoomView apiBase={apiBase} />}
+        {activeTab === TabType.FRIEND && <FriendView apiBase={apiBase} />}
+        {activeTab === TabType.SETTINGS && (
+          <div className="h-full overflow-y-auto px-4 pt-6 pb-32">
+            <SettingsView apiBase={apiBase} setApiBase={setApiBase} defaultApi={DEFAULT_API} />
+          </div>
+        )}
       </main>
 
       {/* Bottom Nav */}
-      <nav className="fixed bottom-6 left-4 right-4 z-50">
-        <div className="max-w-md mx-auto bg-slate-900/95 backdrop-blur-lg border border-white/10 rounded-3xl shadow-2xl shadow-slate-900/40 px-2 py-2">
+      <nav className="fixed bottom-6 left-4 right-4 z-50 pointer-events-none">
+        <div className="max-w-md mx-auto bg-slate-900/95 backdrop-blur-lg border border-white/10 rounded-3xl shadow-2xl shadow-slate-900/40 px-2 py-2 pointer-events-auto">
           <div className="flex items-center justify-between">
             <button
               onClick={() => setActiveTab(TabType.ROOM)}

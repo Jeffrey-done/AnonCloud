@@ -78,12 +78,7 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     if (m.type === 'image' || isImageData) {
       return (
         <div className="relative group/media">
-          <img 
-            src={content} 
-            className="rounded-2xl max-w-full max-h-[300px] object-cover cursor-zoom-in shadow-md" 
-            alt="media" 
-            onClick={() => setPreviewImage(content)}
-          />
+          <img src={content} className="rounded-2xl max-w-full max-h-[300px] object-cover cursor-zoom-in shadow-md" alt="media" onClick={() => setPreviewImage(content)} />
           <div className="absolute top-2 right-2 p-1.5 bg-black/20 backdrop-blur-md rounded-lg text-white opacity-0 group-hover/media:opacity-100 transition-opacity pointer-events-none">
             <Maximize2 size={12} />
           </div>
@@ -106,45 +101,37 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
 
   if (isPaired) {
     return (
-      <div className="flex flex-col h-[calc(100vh-12rem)] overflow-hidden">
+      <div className="flex flex-col h-full animate-in fade-in duration-500">
         {previewImage && (
-          <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in zoom-in duration-300" onClick={() => setPreviewImage(null)}>
-            <img src={previewImage} className="max-w-full max-h-full rounded-2xl shadow-2xl ring-1 ring-white/10" alt="preview" />
-            <button className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all">
-              <X size={24} />
-            </button>
+          <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-xl flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
+            <img src={previewImage} className="max-w-full max-h-full rounded-2xl shadow-2xl" alt="preview" />
           </div>
         )}
 
-        <div className="flex items-center justify-between px-2 mb-4">
-          <div className="flex items-center space-x-3 bg-white px-4 py-2 rounded-2xl shadow-sm border border-slate-200/60">
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-lg shadow-emerald-200" />
-            <h3 className="font-black text-slate-700 text-xs tracking-[0.15em] uppercase">{targetCode}</h3>
+        {/* Friend Header */}
+        <div className="flex-shrink-0 px-4 py-3 bg-white/40 backdrop-blur-sm border-b border-slate-200/60 flex items-center justify-between">
+          <div className="flex items-center space-x-2.5 px-3 py-1.5 bg-white rounded-xl border border-slate-200/60 shadow-sm">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-lg shadow-emerald-200 animate-pulse" />
+            <span className="font-black text-slate-700 text-xs tracking-widest uppercase">{targetCode}</span>
           </div>
-          <button onClick={() => setIsPaired(false)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
+          <button onClick={() => setIsPaired(false)} className="p-2 text-slate-400 hover:text-red-500 transition-colors">
             <X size={20} />
           </button>
         </div>
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-1 space-y-6 pb-4 scroll-smooth" onClick={() => {setShowEmoji(false);}}>
+        {/* Message List */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6 space-y-6 scroll-smooth" onClick={() => setShowEmoji(false)}>
           {messages.map((m) => {
             const isMe = m.sender === myCode;
             return (
-              <div key={m.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group relative animate-in fade-in duration-500 transition-all`}>
-                <div className={`flex items-end space-x-2 max-w-[88%] ${isMe ? 'flex-row-reverse space-x-reverse' : ''}`}>
-                  <div className={`relative px-4 py-3 rounded-[24px] shadow-sm transition-all overflow-hidden ${
-                    isMe 
-                      ? 'bg-blue-600 rounded-tr-none shadow-blue-200/50' 
-                      : 'bg-white border border-slate-200/80 rounded-tl-none'
-                  }`}>
-                    {renderMessageContent(m, isMe)}
-                  </div>
+              <div key={m.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} animate-in fade-in duration-300`}>
+                <div className={`relative px-4 py-3 rounded-[24px] shadow-sm ${isMe ? 'bg-blue-600 rounded-tr-none text-white' : 'bg-white border border-slate-200/80 rounded-tl-none text-slate-800'} max-w-[85%]`}>
+                  {renderMessageContent(m, isMe)}
                 </div>
-
-                <div className={`flex items-center mt-1.5 space-x-1.5 ${isMe ? 'flex-row-reverse space-x-reverse' : ''} px-1`}>
-                  <span className="text-[9px] font-black text-slate-300 uppercase tracking-tighter">{m.time}</span>
+                <div className={`flex items-center mt-1 space-x-1 px-1 ${isMe ? 'flex-row-reverse space-x-reverse' : ''}`}>
+                  <span className="text-[8px] font-black text-slate-300 uppercase">{m.time}</span>
                   {isMe && (m.read 
-                    ? <div className="flex -space-x-1.5 opacity-60"><Check size={10} className="text-emerald-500" strokeWidth={3}/><Check size={10} className="text-emerald-500" strokeWidth={3}/></div> 
+                    ? <Check size={10} className="text-emerald-500" strokeWidth={3}/> 
                     : <Check size={10} className="text-slate-200" strokeWidth={3}/>
                   )}
                 </div>
@@ -153,33 +140,29 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
           })}
         </div>
 
-        <div className="mt-auto px-1 pb-2">
+        {/* Input Area */}
+        <div className="flex-shrink-0 px-4 pb-32 pt-2">
           {showEmoji && (
-            <div className="absolute bottom-24 left-4 right-4 bg-white/95 backdrop-blur-md border border-slate-200 p-3 rounded-3xl shadow-2xl z-50 grid grid-cols-6 gap-2">
-              {EMOJIS.map(e => <button key={e} onClick={() => { setInputMsg(p => p + e); setShowEmoji(false); }} className="text-2xl p-2 hover:bg-slate-50 rounded-xl transition-all">{e}</button>)}
+            <div className="absolute bottom-[240px] left-4 right-4 bg-white/95 backdrop-blur-md border border-slate-200 p-3 rounded-3xl shadow-2xl z-50 grid grid-cols-6 gap-2">
+              {EMOJIS.map(e => <button key={e} onClick={() => { setInputMsg(p => p + e); setShowEmoji(false); }} className="text-2xl p-2 hover:bg-slate-50 rounded-xl">{e}</button>)}
             </div>
           )}
 
-          <div className="relative flex flex-col p-2 rounded-[32px] border transition-all duration-300 bg-slate-900 border-slate-800 shadow-2xl shadow-slate-900/40">
+          <div className="relative flex flex-col p-1.5 rounded-[28px] border bg-slate-900 border-slate-800 shadow-2xl">
             <div className="flex items-center">
-              <button onClick={() => setShowEmoji(!showEmoji)} className="p-2.5 text-white/50 hover:text-white transition-colors"><Smile size={20} /></button>
-              
+              <button onClick={() => setShowEmoji(!showEmoji)} className="p-2.5 flex-shrink-0 text-white/50 hover:text-white"><Smile size={20} /></button>
               <input 
                 type="text" 
                 value={inputMsg} 
                 onChange={e => setInputMsg(e.target.value)} 
                 onKeyDown={e => e.key === 'Enter' && sendMessage()} 
                 placeholder="Private message..." 
-                className="flex-1 bg-transparent border-none px-3 py-2.5 text-[15px] font-medium focus:ring-0 outline-none transition-colors text-white placeholder:text-white/30" 
+                className="flex-1 min-w-0 bg-transparent px-2 py-2.5 text-[14px] font-medium outline-none text-white placeholder:text-white/20" 
               />
-              
-              <div className="flex items-center pr-1">
-                <button onClick={() => fileInputRef.current?.click()} className="p-2.5 text-white/50 hover:text-white"><ImageIcon size={20} /></button>
+              <div className="flex items-center space-x-0.5 flex-shrink-0">
+                <button onClick={() => fileInputRef.current?.click()} className="p-2 text-white/50 hover:text-white"><ImageIcon size={18} /></button>
                 <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*" onChange={handleFileUpload} />
-                <button 
-                  onClick={() => sendMessage()} 
-                  className="p-3 rounded-full shadow-lg transition-all active:scale-90 bg-blue-600 text-white"
-                >
+                <button onClick={() => sendMessage()} className="p-2.5 rounded-full bg-blue-600 text-white transition-all active:scale-90 ml-1">
                   <Send size={18} strokeWidth={2.5} />
                 </button>
               </div>
@@ -191,57 +174,51 @@ const FriendView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   }
 
   return (
-    <div className="space-y-6 max-w-md mx-auto">
-      <div className="bg-white p-8 rounded-[40px] border border-slate-200/60 shadow-xl shadow-slate-200/50 space-y-8">
+    <div className="h-full overflow-y-auto px-4 pt-6 pb-32 space-y-6">
+      <div className="bg-white p-8 rounded-[40px] border border-slate-200/60 shadow-xl space-y-8">
         <div>
-          <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center space-x-2">
-            <Fingerprint className="text-blue-600" size={24} />
+          <h2 className="text-lg font-black text-slate-900 tracking-tight flex items-center space-x-2">
+            <Fingerprint className="text-blue-600" size={20} />
             <span>Identity Node</span>
           </h2>
-          <p className="text-slate-400 text-[12px] font-medium mt-1">Share this code with your contact</p>
+          <p className="text-slate-400 text-[11px] font-bold uppercase mt-1">Global Communication ID</p>
         </div>
 
         {myCode ? (
           <div className="group relative">
             <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-3xl px-4 py-6 text-center">
-              <span className="text-2xl font-black font-mono tracking-[0.4em] text-slate-800 uppercase leading-none">{myCode}</span>
+              <span className="text-2xl font-black font-mono tracking-[0.3em] text-slate-800 uppercase">{myCode}</span>
             </div>
             <button 
               onClick={() => { navigator.clipboard.writeText(myCode); setCopied(true); setTimeout(() => setCopied(false), 2000); }} 
-              className="absolute -right-3 -bottom-3 p-4 bg-slate-900 text-white rounded-[24px] shadow-xl shadow-slate-900/30 active:scale-90 transition-all"
+              className="absolute -right-2 -bottom-2 p-3.5 bg-slate-900 text-white rounded-[20px] shadow-xl active:scale-90 transition-all"
             >
-              {copied ? <CheckCircle2 size={22} className="text-emerald-400" /> : <Copy size={22} />}
+              {copied ? <CheckCircle2 size={20} className="text-emerald-400" /> : <Copy size={20} />}
             </button>
           </div>
         ) : (
-          <button 
-            onClick={async () => { const res = await request<any>(apiBase, '/api/create-friend-code'); if (res.code === 200) setMyCode(res.friendCode!); }} 
-            className="w-full bg-slate-900 text-white py-5 rounded-3xl font-black text-sm uppercase tracking-widest shadow-2xl shadow-slate-900/20 active:scale-[0.98] transition-all"
-          >
+          <button onClick={async () => { const res = await request<any>(apiBase, '/api/create-friend-code'); if (res.code === 200) setMyCode(res.friendCode!); }} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">
             Generate Identity
           </button>
         )}
       </div>
 
-      <div className="bg-white p-8 rounded-[40px] border border-slate-200/60 shadow-xl shadow-slate-200/50 space-y-6">
-        <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center space-x-2">
-          <UserPlus className="text-slate-400" size={24} />
+      <div className="bg-white p-8 rounded-[40px] border border-slate-200/60 shadow-xl space-y-6">
+        <h2 className="text-lg font-black text-slate-900 tracking-tight flex items-center space-x-2">
+          <UserPlus className="text-slate-400" size={20} />
           <span>Sync Pair</span>
         </h2>
         
         <div className="space-y-4">
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-1 flex items-center">
-             <div className="p-3 text-slate-400"><Fingerprint size={18}/></div>
-             <input type="text" value={myCode} onChange={e => setMyCode(e.target.value.toUpperCase())} placeholder="MY CODE" className="w-full bg-transparent py-4 font-black font-mono text-xs tracking-widest outline-none text-slate-800" />
+          <div className="bg-slate-50 border border-slate-100 rounded-xl p-0.5 flex items-center">
+             <div className="p-3 text-slate-400"><Fingerprint size={16}/></div>
+             <input type="text" value={myCode} onChange={e => setMyCode(e.target.value.toUpperCase())} placeholder="MY CODE" className="w-full bg-transparent py-3 font-black font-mono text-xs tracking-widest outline-none" />
           </div>
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-1 flex items-center">
-             <div className="p-3 text-slate-400"><Lock size={18}/></div>
-             <input type="text" value={targetCode} onChange={e => setTargetCode(e.target.value.toUpperCase())} placeholder="TARGET CODE" className="w-full bg-transparent py-4 font-black font-mono text-xs tracking-widest outline-none text-slate-800" />
+          <div className="bg-slate-50 border border-slate-100 rounded-xl p-0.5 flex items-center">
+             <div className="p-3 text-slate-400"><Lock size={16}/></div>
+             <input type="text" value={targetCode} onChange={e => setTargetCode(e.target.value.toUpperCase())} placeholder="TARGET CODE" className="w-full bg-transparent py-3 font-black font-mono text-xs tracking-widest outline-none" />
           </div>
-          <button 
-            onClick={async () => { const res = await request<any>(apiBase, '/api/add-friend', 'POST', { myCode, targetCode }); if (res.code === 200) setIsPaired(true); }} 
-            className="w-full bg-blue-600 text-white py-5 rounded-3xl font-black text-sm uppercase tracking-widest shadow-xl shadow-blue-200 active:scale-[0.98] transition-all"
-          >
+          <button onClick={async () => { const res = await request<any>(apiBase, '/api/add-friend', 'POST', { myCode, targetCode }); if (res.code === 200) setIsPaired(true); }} className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-100">
             Establish Link
           </button>
         </div>
