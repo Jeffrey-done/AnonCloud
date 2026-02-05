@@ -41,21 +41,24 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
 
   if (path === "/api/send-msg") {
     try {
-      const { roomCode, msg, type = 'text' } = await request.json();
+      const { roomCode, msg, type = 'text', burn = false } = await request.json();
       const key = `room:msg:${roomCode}`;
       const rawData = await kv.get(key);
       if (rawData === null) return new Response(JSON.stringify({ code: 404, msg: "房间不存在" }), { headers: corsHeaders });
       
       const data = JSON.parse(rawData);
       data.push({ 
-        id: crypto.randomUUID(), // 使用更可靠的 UUID
+        id: crypto.randomUUID(), 
         sender: 'anonymous', 
         time: new Date().toLocaleTimeString('zh-CN', { hour12: false }), 
         timestamp: Date.now(),
         type,
         content: msg,
+        burn,
+        burnState: burn ? 'pending' : 'none', // pending: 未读, burning: 销毁中
         read: false
       });
+      // 保持消息队列长度
       if (data.length > 50) data.shift(); 
       await kv.put(key, JSON.stringify(data), { expirationTtl: 43200 });
       return new Response(JSON.stringify({ code: 200 }), { headers: corsHeaders });
@@ -68,14 +71,37 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
     const code = url.searchParams.get("roomCode");
     const key = `room:msg:${code}`;
     const rawData = await kv.get(key);
-    // 自动为缺少 ID 的老旧数据补充 ID，防止前端缓存重复
-    let data = JSON.parse(rawData || "[]").map((m: any) => ({
-      ...m,
-      id: m.id || `legacy-${m.timestamp || Math.random()}`
-    }));
-    return new Response(JSON.stringify({ code: 200, data }), { headers: corsHeaders });
+    if (!rawData) return new Response(JSON.stringify({ code: 200, data: [] }), { headers: corsHeaders });
+
+    let data = JSON.parse(rawData);
+    const now = Date.now();
+    let needsUpdate = false;
+
+    // 过滤逻辑：移除已超时的阅后即焚消息
+    const filteredData = data.filter((m: any) => {
+      if (m.burn && m.expireAt && now > m.expireAt) {
+        needsUpdate = true;
+        return false;
+      }
+      return true;
+    });
+
+    // 状态更新逻辑：如果消息是阅后即焚且从未被读取，标记“点燃”
+    const processedData = filteredData.map((m: any) => {
+      if (m.burn && !m.expireAt) {
+        m.expireAt = now + 30000; // 30秒引信
+        m.burnState = 'burning';
+        needsUpdate = true;
+      }
+      return m;
+    });
+
+    if (needsUpdate) {
+      await kv.put(key, JSON.stringify(processedData), { expirationTtl: 43200 });
+    }
+
+    return new Response(JSON.stringify({ code: 200, data: processedData }), { headers: corsHeaders });
   }
 
-  // ... 其余接口保持逻辑一致，确保 ID 生成
   return new Response(JSON.stringify({ code: 404, msg: "未找到接口" }), { status: 404, headers: corsHeaders });
 };
