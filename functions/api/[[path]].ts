@@ -1,4 +1,3 @@
-
 interface Env {
   CHAT_KV: any;
 }
@@ -33,6 +32,9 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
     return res;
   };
 
+  // 生成更健壮的唯一 ID
+  const generateMessageId = () => `MSG-${Date.now()}-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
+
   // --- ROOM CHAT ENDPOINTS ---
 
   if (path === "/api/create-room") {
@@ -50,7 +52,7 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
       
       const data = JSON.parse(rawData);
       data.push({ 
-        id: crypto.randomUUID(), 
+        id: generateMessageId(), // 使用更健壮的 ID
         sender: 'anonymous', 
         time: new Date().toLocaleTimeString('zh-CN', { hour12: false }), 
         timestamp: Date.now(),
@@ -107,7 +109,6 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
 
   if (path === "/api/create-friend-code") {
     const code = "UID-" + generateCode(8);
-    // Use the code as a key just to reserve it or store minimal profile if needed
     await kv.put(`friend:id:${code}`, "active", { expirationTtl: 86400 * 7 });
     return new Response(JSON.stringify({ code: 200, friendCode: code }), { headers: corsHeaders });
   }
@@ -117,18 +118,15 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
       const { myCode, targetCode } = await request.json();
       if (!myCode || !targetCode) return new Response(JSON.stringify({ code: 400, msg: "Codes required" }), { status: 400, headers: corsHeaders });
       
-      // Check if both exist (optional, but good for validation)
       const targetExists = await kv.get(`friend:id:${targetCode}`);
       if (!targetExists) return new Response(JSON.stringify({ code: 404, msg: "目标身份不存在" }), { headers: corsHeaders });
 
-      // Create a deterministic pair key
       const pairKey = [myCode, targetCode].sort().join(':');
       const channelKey = `friend:msg:${pairKey}`;
       
-      // Initialize channel if not exists
       const existing = await kv.get(channelKey);
       if (!existing) {
-        await kv.put(channelKey, "[]", { expirationTtl: 86400 * 3 }); // 3 days retention
+        await kv.put(channelKey, "[]", { expirationTtl: 86400 * 3 });
       }
 
       return new Response(JSON.stringify({ code: 200, msg: "Pair established" }), { headers: corsHeaders });
@@ -147,7 +145,7 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
       let data = rawData ? JSON.parse(rawData) : [];
       
       data.push({ 
-        id: crypto.randomUUID(), 
+        id: generateMessageId(), 
         sender: myCode, 
         time: new Date().toLocaleTimeString('zh-CN', { hour12: false }), 
         timestamp: Date.now(),
@@ -176,7 +174,6 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
     
     let data = rawData ? JSON.parse(rawData) : [];
     
-    // Simple "read receipt" logic: mark target's messages as read
     let changed = false;
     const processed = data.map((m: any) => {
       if (m.sender !== myCode && !m.read) {

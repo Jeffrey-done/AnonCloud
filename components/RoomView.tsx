@@ -11,6 +11,12 @@ import {
 
 const EMOJIS = ['😀', '😂', '😍', '🤔', '😎', '🔥', '✨', '👍', '🙏', '❤️', '🎉', '👋', '👀', '🌚', '🤫', '💀'];
 
+// 工具函数：检测是否纯表情消息
+const isOnlyEmoji = (text: string) => {
+  const emojiRegex = /^(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])+$/g;
+  return text.length <= 8 && emojiRegex.test(text.replace(/\s/g, ''));
+};
+
 const AudioPlayer: React.FC<{ src: string }> = ({ src }) => {
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -66,6 +72,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   
   const [cryptoKey, setCryptoKey] = useState<CryptoKey | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  // 强化缓存键：ID + 内容摘要，防止 ID 缺失导致的重复
   const decryptedCache = useRef<Record<string, string>>({});
   
   const [inputMsg, setInputMsg] = useState<string>('');
@@ -80,7 +87,6 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [showShare, setShowShare] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
   
-  // Recording State
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -107,7 +113,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
       setIsInitializing(true);
       const key = await deriveKey(activeRoom, password);
       setCryptoKey(key);
-      decryptedCache.current = {}; 
+      decryptedCache.current = {}; // 切换房间时清空缓存
       setError(null);
     } catch (e: any) {
       setError('加密初始化失败');
@@ -142,7 +148,8 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     const res = await request<any[]>(apiBase, `/api/get-msg?roomCode=${activeRoom}`);
     if (res.code === 200 && res.data) {
       const decryptedMsgs = await Promise.all(res.data.map(async (m) => {
-        const cacheKey = m.id;
+        // 使用更安全的复合缓存键
+        const cacheKey = `${m.id || 'NOID'}-${m.content.substring(0, 20)}`;
         
         if (decryptedCache.current[cacheKey]) {
           return { ...m, content: decryptedCache.current[cacheKey] };
@@ -150,7 +157,12 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
         
         const decrypted = await decryptContent(cryptoKey, m.content);
         const finalContent = decrypted !== null ? decrypted : '🔒 [解密失败]';
-        decryptedCache.current[cacheKey] = finalContent;
+        
+        // 只有解密成功且有 ID 才缓存
+        if (decrypted !== null && m.id) {
+          decryptedCache.current[cacheKey] = finalContent;
+        }
+        
         return { ...m, content: finalContent };
       }));
       setMessages(decryptedMsgs);
@@ -281,6 +293,9 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
       return <img src={m.content} className="rounded-2xl max-w-full max-h-[300px] object-cover cursor-zoom-in shadow-sm hover:brightness-95 transition-all" alt="media" onClick={() => setPreviewImage(m.content)} />;
     }
 
+    // 大表情识别渲染
+    const isEmoji = isOnlyEmoji(m.content);
+
     return (
       <div className="flex flex-col">
         {m.burn && (
@@ -299,7 +314,9 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
             )}
           </div>
         )}
-        <p className="text-[14px] leading-relaxed break-all whitespace-pre-wrap font-medium text-slate-800">{m.content}</p>
+        <p className={`${isEmoji ? 'text-[48px] py-2' : 'text-[14px] leading-relaxed'} break-all whitespace-pre-wrap font-medium text-slate-800`}>
+          {m.content}
+        </p>
       </div>
     );
   };
@@ -376,17 +393,22 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
               <p className="text-[10px] mt-2">No data recorded on server</p>
             </div>
           )}
-          {messages.map((m) => (
-            <div key={m.id} className="flex flex-col items-start animate-in slide-in-from-bottom-3 duration-500">
-              <div className={`relative px-5 py-4 rounded-[28px] rounded-tl-none border shadow-sm transition-all duration-500 ${m.burn ? 'bg-amber-50/40 border-amber-200 ring-2 ring-amber-500/5' : 'bg-white border-slate-200/80'} text-slate-800 max-w-[85%]`}>
-                {renderMessageContent(m)}
+          {messages.map((m) => {
+            const isEmoji = isOnlyEmoji(m.content);
+            return (
+              <div key={m.id || Math.random()} className="flex flex-col items-start animate-in fade-in slide-in-from-bottom-3 duration-500">
+                <div className={`relative px-5 py-4 transition-all duration-500 ${isEmoji ? 'bg-transparent border-none' : (m.burn ? 'bg-amber-50/40 border-amber-200 border rounded-[28px] rounded-tl-none ring-2 ring-amber-500/5' : 'bg-white border-slate-200/80 border rounded-[28px] rounded-tl-none')} text-slate-800 max-w-[85%] shadow-sm`}>
+                  {renderMessageContent(m)}
+                </div>
+                {!isEmoji && (
+                  <div className="flex items-center space-x-2 mt-2 ml-1">
+                    <span className="text-[9px] font-black text-slate-300 uppercase">{m.time}</span>
+                    {m.burn && <div className="w-1 h-1 bg-amber-400 rounded-full animate-ping" />}
+                  </div>
+                )}
               </div>
-              <div className="flex items-center space-x-2 mt-2 ml-1">
-                <span className="text-[9px] font-black text-slate-300 uppercase">{m.time}</span>
-                {m.burn && <div className="w-1 h-1 bg-amber-400 rounded-full animate-ping" />}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Input Area */}
