@@ -4,7 +4,6 @@
  * 基于 Web Crypto API 的端到端加密实现
  */
 
-// 10,000 次迭代对于移动端是较好的平衡点，100,000 次在旧手机上可能导致 5-10s 的卡顿
 const ITERATIONS = 10000;
 const ALGO = 'AES-GCM';
 
@@ -12,19 +11,45 @@ const enc = new TextEncoder();
 const dec = new TextDecoder();
 
 /**
- * 检查当前环境是否支持加密
+ * 健壮的 Uint8Array 转 Base64
+ * 解决大数组 Spread 导致栈溢出的问题
  */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+/**
+ * 健壮的 Base64 转 Uint8Array
+ */
+function base64ToBytes(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
 export function isCryptoSupported(): boolean {
   return !!(window.crypto && window.crypto.subtle);
 }
 
 /**
  * 从房间号和密码派生密钥
+ * 强制规范化房间号作为盐值
  */
 export async function deriveKey(roomCode: string, password: string): Promise<CryptoKey> {
   if (!isCryptoSupported()) {
     throw new Error('当前环境不支持加密（需 HTTPS）');
   }
+
+  const normalizedSalt = roomCode.trim().toUpperCase();
 
   const passwordKey = await window.crypto.subtle.importKey(
     'raw',
@@ -37,7 +62,7 @@ export async function deriveKey(roomCode: string, password: string): Promise<Cry
   return window.crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt: enc.encode(roomCode),
+      salt: enc.encode(normalizedSalt),
       iterations: ITERATIONS,
       hash: 'SHA-256',
     },
@@ -48,9 +73,6 @@ export async function deriveKey(roomCode: string, password: string): Promise<Cry
   );
 }
 
-/**
- * 加密内容
- */
 export async function encryptContent(key: CryptoKey, plainText: string): Promise<string> {
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
   const encoded = enc.encode(plainText);
@@ -65,15 +87,12 @@ export async function encryptContent(key: CryptoKey, plainText: string): Promise
   combined.set(iv);
   combined.set(new Uint8Array(ciphertext), iv.length);
   
-  return btoa(String.fromCharCode(...combined));
+  return bytesToBase64(combined);
 }
 
-/**
- * 解密内容
- */
 export async function decryptContent(key: CryptoKey, base64Data: string): Promise<string | null> {
   try {
-    const combined = new Uint8Array(atob(base64Data).split('').map(c => c.charCodeAt(0)));
+    const combined = base64ToBytes(base64Data);
     const iv = combined.slice(0, 12);
     const ciphertext = combined.slice(12);
 
