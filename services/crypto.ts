@@ -4,19 +4,28 @@
  * 基于 Web Crypto API 的端到端加密实现
  */
 
-const ITERATIONS = 100000;
+// 10,000 次迭代对于移动端是较好的平衡点，100,000 次在旧手机上可能导致 5-10s 的卡顿
+const ITERATIONS = 10000;
 const ALGO = 'AES-GCM';
 
-// 将字符串转为 ArrayBuffer
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
 /**
+ * 检查当前环境是否支持加密
+ */
+export function isCryptoSupported(): boolean {
+  return !!(window.crypto && window.crypto.subtle);
+}
+
+/**
  * 从房间号和密码派生密钥
- * @param roomCode 房间号（作为 Salt 之一）
- * @param password 房间密码
  */
 export async function deriveKey(roomCode: string, password: string): Promise<CryptoKey> {
+  if (!isCryptoSupported()) {
+    throw new Error('当前环境不支持加密（需 HTTPS）');
+  }
+
   const passwordKey = await window.crypto.subtle.importKey(
     'raw',
     enc.encode(password),
@@ -52,7 +61,6 @@ export async function encryptContent(key: CryptoKey, plainText: string): Promise
     encoded
   );
 
-  // 将 IV 和密文合并并转为 Base64
   const combined = new Uint8Array(iv.length + ciphertext.byteLength);
   combined.set(iv);
   combined.set(new Uint8Array(ciphertext), iv.length);

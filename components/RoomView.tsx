@@ -1,8 +1,8 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Message, MessageType, SavedRoom } from '../types';
 import { request } from '../services/api';
-import { deriveKey, encryptContent, decryptContent } from '../services/crypto';
+import { deriveKey, encryptContent, decryptContent, isCryptoSupported } from '../services/crypto';
 import ProtocolInfo from './ProtocolInfo';
 import { 
   Send, PlusCircle, Copy, CheckCircle2, Image as ImageIcon, 
@@ -22,6 +22,9 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   
   const [cryptoKey, setCryptoKey] = useState<CryptoKey | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  // 缓存已解密的消息内容，key 为 message.id
+  const decryptedCache = useRef<Record<string, string>>({});
+  
   const [inputMsg, setInputMsg] = useState<string>('');
   const [showEmoji, setShowEmoji] = useState(false);
   const [showProtocol, setShowProtocol] = useState(false);
@@ -40,6 +43,26 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // 初始化加密
+  const initCrypto = useCallback(async () => {
+    if (!activeRoom || !password) return;
+    if (!isCryptoSupported()) {
+      setError('当前浏览器不支持加密，请使用 HTTPS 访问或更换浏览器。');
+      return;
+    }
+    try {
+      setLoading(true);
+      const key = await deriveKey(activeRoom, password);
+      setCryptoKey(key);
+      decryptedCache.current = {}; // 切换房间清空解密缓存
+      setError(null);
+    } catch (e: any) {
+      setError(e.message || '密钥初始化失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [activeRoom, password]);
+
   useEffect(() => {
     localStorage.setItem('anon_active_room', activeRoom);
     localStorage.setItem('anon_last_room_input', roomCode);
@@ -50,16 +73,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
       initCrypto();
       saveToHistory(activeRoom, password);
     }
-  }, [activeRoom, roomCode, password, savedRooms]);
-
-  const initCrypto = async () => {
-    try {
-      const key = await deriveKey(activeRoom, password);
-      setCryptoKey(key);
-    } catch (e) {
-      setError('密钥初始化失败');
-    }
-  };
+  }, [activeRoom, password, initCrypto]);
 
   const saveToHistory = (code: string, pass: string) => {
     if (!code || !pass) return;
@@ -81,6 +95,31 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     setTimeout(() => { setActiveRoom(room.code); }, 50);
   };
 
+  const fetchMessages = useCallback(async () => {
+    if (!activeRoom || !cryptoKey) return;
+
+    const res = await request<Message[]>(apiBase, `/api/get-msg?roomCode=${activeRoom}`);
+    if (res.code === 200 && res.data) {
+      const decryptedMsgs = await Promise.all(res.data.map(async (m) => {
+        // 优先使用缓存
+        if (decryptedCache.current[m.id]) {
+          return { ...m, content: decryptedCache.current[m.id] };
+        }
+        // 执行解密并存入缓存
+        const decrypted = await decryptContent(cryptoKey, m.content);
+        const finalContent = decrypted || '🔒 [无法解密的加密数据]';
+        decryptedCache.current[m.id] = finalContent;
+        return { ...m, content: finalContent };
+      }));
+      setMessages(decryptedMsgs);
+      setError(null);
+    } else if (res.code === 404) {
+      setActiveRoom('');
+    } else if (res.code !== 200) {
+      setError(res.msg || '获取消息失败');
+    }
+  }, [activeRoom, cryptoKey, apiBase]);
+
   useEffect(() => {
     let interval: any;
     if (activeRoom && cryptoKey) {
@@ -88,50 +127,38 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
       interval = setInterval(fetchMessages, 3500);
     }
     return () => clearInterval(interval);
-  }, [activeRoom, cryptoKey, apiBase]);
+  }, [activeRoom, cryptoKey, fetchMessages]);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
-
-  const fetchMessages = async () => {
-    const res = await request<Message[]>(apiBase, `/api/get-msg?roomCode=${activeRoom}`);
-    if (res.code === 200 && res.data) {
-      if (cryptoKey) {
-        const decryptedMsgs = await Promise.all(res.data.map(async (m) => {
-          const decrypted = await decryptContent(cryptoKey, m.content);
-          return { ...m, content: decrypted || '🔒 [无法解密的加密数据]' };
-        }));
-        setMessages(decryptedMsgs);
-      }
-      setError(null);
-    } else if (res.code === 404) {
-      setActiveRoom('');
-    } else if (res.code !== 200) {
-      setError(res.msg || '无法连接到服务器');
-    }
-  };
 
   const sendMessage = async (content?: string, type: MessageType = 'text') => {
     const rawContent = content !== undefined ? content : inputMsg;
     if (!rawContent.trim() || !activeRoom || !cryptoKey) return;
     
     setLoading(true);
-    const encrypted = await encryptContent(cryptoKey, rawContent);
-    
-    const res = await request<any>(apiBase, '/api/send-msg', 'POST', { 
-      roomCode: activeRoom, 
-      msg: encrypted, 
-      type
-    });
-    setLoading(false);
-    
-    if (res.code === 200) {
-      if (content === undefined) setInputMsg('');
-      setError(null);
-      fetchMessages();
-    } else {
-      setError(res.msg || '发送失败');
+    try {
+      const encrypted = await encryptContent(cryptoKey, rawContent);
+      const res = await request<any>(apiBase, '/api/send-msg', 'POST', { 
+        roomCode: activeRoom, 
+        msg: encrypted, 
+        type
+      });
+      
+      if (res.code === 200) {
+        if (content === undefined) setInputMsg('');
+        setError(null);
+        fetchMessages();
+      } else {
+        setError(res.msg || '发送失败');
+      }
+    } catch (e: any) {
+      setError('加密或发送过程出错');
+      console.error(e);
+    } finally {
+      // 关键：确保无论成功失败都会停止转圈
+      setLoading(false);
     }
   };
 
@@ -306,7 +333,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
             </button>
           </div>
           {error && (
-            <div className="p-2 bg-red-50 border border-red-100 rounded-lg flex items-center space-x-2 text-red-600 text-[10px] font-bold">
+            <div className="p-2 bg-red-50 border border-red-100 rounded-lg flex items-center space-x-2 text-red-600 text-[10px] font-bold animate-pulse">
               <AlertCircle size={12} />
               <span>{error}</span>
             </div>
@@ -367,7 +394,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
                 onChange={(e) => setInputMsg(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
                 placeholder={isRecording ? "Recording..." : "Secure message..."}
-                disabled={isRecording}
+                disabled={isRecording || loading}
                 className="flex-1 min-w-0 bg-transparent px-2 py-2.5 text-[14px] font-medium focus:ring-0 outline-none text-slate-800"
               />
               
@@ -412,18 +439,28 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
            <p className="text-slate-400 text-[11px] font-bold uppercase mt-1">Temporary Encrypted Room</p>
          </div>
 
+         {error && (
+            <div className="p-3 bg-red-50 border border-red-100 rounded-2xl flex items-start space-x-2 text-red-600 text-[11px] font-bold text-left">
+              <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+         )}
+
          <div className="space-y-3">
             <button 
               onClick={async () => { 
                 if(!password) { setError('请输入密码作为密钥'); return; }
                 setLoading(true); 
-                const res = await request<any>(apiBase, '/api/create-room'); 
-                if (res.code === 200) setActiveRoom(res.roomCode!); 
-                else setError(res.msg || '连接失败'); 
-                setLoading(false); 
+                try {
+                  const res = await request<any>(apiBase, '/api/create-room'); 
+                  if (res.code === 200) setActiveRoom(res.roomCode!); 
+                  else setError(res.msg || '连接失败'); 
+                } finally {
+                  setLoading(false); 
+                }
               }}
               disabled={loading} 
-              className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center space-x-2"
+              className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center space-x-2 active:scale-95 transition-transform"
             >
               {loading ? <Loader2 size={16} className="animate-spin" /> : <PlusCircle size={16} />}
               <span>New Room</span>
@@ -447,7 +484,10 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
                <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="SECRET" className="w-full bg-transparent font-black text-sm outline-none" />
             </div>
          </div>
-         <button onClick={() => { if(!roomCode || !password) return; setActiveRoom(roomCode.toUpperCase()); }} className="w-full bg-blue-600 text-white py-4 rounded-xl font-black text-[10px] uppercase tracking-widest">
+         <button 
+          onClick={() => { if(!roomCode || !password) return; setActiveRoom(roomCode.toUpperCase()); }} 
+          className="w-full bg-blue-600 text-white py-4 rounded-xl font-black text-[10px] uppercase tracking-widest active:scale-95 transition-transform"
+         >
            Access Vault
          </button>
       </div>
