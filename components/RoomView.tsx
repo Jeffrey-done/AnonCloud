@@ -11,7 +11,6 @@ import {
 
 const EMOJIS = ['😀', '😂', '😍', '🤔', '😎', '🔥', '✨', '👍', '🙏', '❤️', '🎉', '👋', '👀', '🌚', '🤫', '💀'];
 
-// 工具函数：检测是否纯表情消息
 const isOnlyEmoji = (text: string) => {
   const emojiRegex = /^(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])+$/g;
   return text.length <= 8 && emojiRegex.test(text.replace(/\s/g, ''));
@@ -24,20 +23,14 @@ const AudioPlayer: React.FC<{ src: string }> = ({ src }) => {
 
   const togglePlay = () => {
     if (!audioRef.current) return;
-    if (playing) {
-      audioRef.current.pause();
-    } else {
-      audioRef.current.play();
-    }
+    playing ? audioRef.current.pause() : audioRef.current.play();
     setPlaying(!playing);
   };
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    const updateProgress = () => {
-      setProgress((audio.currentTime / audio.duration) * 100);
-    };
+    const updateProgress = () => setProgress((audio.currentTime / audio.duration) * 100);
     const onEnded = () => setPlaying(false);
     audio.addEventListener('timeupdate', updateProgress);
     audio.addEventListener('ended', onEnded);
@@ -55,7 +48,6 @@ const AudioPlayer: React.FC<{ src: string }> = ({ src }) => {
       <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden relative">
         <div className="h-full bg-blue-500 transition-all duration-100" style={{ width: `${progress}%` }} />
       </div>
-      <span className="text-[10px] font-black text-slate-400 uppercase">Vox</span>
       <audio ref={audioRef} src={src} className="hidden" />
     </div>
   );
@@ -77,7 +69,6 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [inputMsg, setInputMsg] = useState<string>('');
   const [showEmoji, setShowEmoji] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -91,6 +82,23 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 核心：处理 URL 分享逻辑
+  useEffect(() => {
+    const hash = window.location.hash.replace(/^#/, '');
+    if (hash) {
+      const params = new URLSearchParams(hash);
+      const r = params.get('r');
+      const p = params.get('p');
+      if (r && p) {
+        setRoomCode(r.toUpperCase());
+        setPassword(p);
+        setActiveRoom(r.toUpperCase());
+        // 成功解析后清除 Hash 保护隐私
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    }
+  }, []);
 
   const visualFingerprint = useMemo(() => {
     if (!password || !activeRoom) return null;
@@ -108,15 +116,12 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const initCrypto = useCallback(async () => {
     if (!activeRoom || !password) return;
     try {
-      setIsInitializing(true);
       const key = await deriveKey(activeRoom, password);
       setCryptoKey(key);
       decryptedCache.current = {}; 
       setError(null);
     } catch (e: any) {
       setError('加密初始化失败');
-    } finally {
-      setIsInitializing(false);
     }
   }, [activeRoom, password]);
 
@@ -128,33 +133,23 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     
     if (activeRoom && password) {
       initCrypto();
-      saveToHistory(activeRoom, password);
+      setSavedRooms(prev => {
+        const filtered = prev.filter(r => r.code !== activeRoom);
+        return [{ code: activeRoom, pass: password, lastUsed: Date.now() }, ...filtered].slice(0, 10);
+      });
     }
   }, [activeRoom, password, initCrypto]);
 
-  const saveToHistory = (code: string, pass: string) => {
-    if (!code || !pass) return;
-    setSavedRooms(prev => {
-      const filtered = prev.filter(r => r.code !== code);
-      return [{ code, pass, lastUsed: Date.now() }, ...filtered].slice(0, 10);
-    });
-  };
-
   const fetchMessages = useCallback(async () => {
     if (!activeRoom || !cryptoKey) return;
-
     const res = await request<any[]>(apiBase, `/api/get-msg?roomCode=${activeRoom}`);
     if (res.code === 200 && res.data) {
       const decryptedMsgs = await Promise.all(res.data.map(async (m) => {
         const cacheKey = `${m.id || 'NOID'}-${m.content.substring(0, 20)}`;
-        if (decryptedCache.current[cacheKey]) {
-          return { ...m, content: decryptedCache.current[cacheKey] };
-        }
+        if (decryptedCache.current[cacheKey]) return { ...m, content: decryptedCache.current[cacheKey] };
         const decrypted = await decryptContent(cryptoKey, m.content);
         const finalContent = decrypted !== null ? decrypted : '🔒 [解密失败]';
-        if (decrypted !== null && m.id) {
-          decryptedCache.current[cacheKey] = finalContent;
-        }
+        if (decrypted !== null && m.id) decryptedCache.current[cacheKey] = finalContent;
         return { ...m, content: finalContent };
       }));
       setMessages(decryptedMsgs);
@@ -177,39 +172,23 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const sendMessage = async (content?: string, type: MessageType = 'text') => {
     const rawContent = (content !== undefined ? content : inputMsg).trim();
     if (!rawContent || !activeRoom || !cryptoKey) return;
-    
-    const isMainInput = content === undefined;
-    if (isMainInput) setInputMsg('');
-    
+    if (content === undefined) setInputMsg('');
     setLoading(true);
     try {
       const encrypted = await encryptContent(cryptoKey, rawContent);
-      const res = await request<any>(apiBase, '/api/send-msg', 'POST', { 
-        roomCode: activeRoom, 
-        msg: encrypted, 
-        type
-      });
-      
-      if (res.code === 200) {
-        fetchMessages();
-      } else {
-        setError(res.msg || '发送失败');
-        if (isMainInput) setInputMsg(rawContent);
-      }
-    } catch (e: any) {
-      setError('加密失败');
-    } finally {
-      setLoading(false);
-    }
+      const res = await request<any>(apiBase, '/api/send-msg', 'POST', { roomCode: activeRoom, msg: encrypted, type });
+      if (res.code === 200) fetchMessages();
+      else setError(res.msg || '发送失败');
+    } catch (e: any) { setError('加密失败'); }
+    finally { setLoading(false); }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { setError('文件超过 5MB 限制'); return; }
     const reader = new FileReader();
     reader.onload = async (ev) => {
-      const type: MessageType = file.type.startsWith('video') ? 'video' : (file.type.startsWith('audio') ? 'audio' : 'image');
+      const type: MessageType = file.type.startsWith('image') ? 'image' : (file.type.startsWith('video') ? 'video' : 'audio');
       await sendMessage(ev.target?.result as string, type);
     };
     reader.readAsDataURL(file);
@@ -222,100 +201,59 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
       const recorder = new MediaRecorder(stream);
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
-      
       recorder.ondataavailable = (e) => audioChunksRef.current.push(e.data);
       recorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         const reader = new FileReader();
-        reader.onload = async (e) => {
-          await sendMessage(e.target?.result as string, 'audio');
-        };
+        reader.onload = async (e) => await sendMessage(e.target?.result as string, 'audio');
         reader.readAsDataURL(audioBlob);
         stream.getTracks().forEach(t => t.stop());
       };
-      
       recorder.start();
       setIsRecording(true);
-    } catch (e) {
-      setError('无法访问麦克风');
-    }
+    } catch (e) { setError('无法访问麦克风'); }
   };
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-    }
-  };
-
-  const handleQuickJoin = (room: SavedRoom) => {
-    setRoomCode(room.code);
-    setPassword(room.pass);
-    setActiveRoom(room.code);
-  };
+  const stopRecording = () => { if (mediaRecorderRef.current) { mediaRecorderRef.current.stop(); setIsRecording(false); } };
 
   const generateShareUrl = async () => {
     const url = `${window.location.origin}${window.location.pathname}#r=${activeRoom}&p=${password}`;
     try {
-      const qrDataUrl = await QRCode.toDataURL(url, { width: 400, margin: 2 });
+      const qrDataUrl = await QRCode.toDataURL(url, { width: 400, margin: 4, color: { dark: '#0f172a', light: '#ffffff' } });
       setQrCodeUrl(qrDataUrl);
       setShowShare(true);
-    } catch (err) {
-      setError('生成二维码失败');
-    }
+    } catch (err) { setError('生成二维码失败'); }
   };
 
   const renderMessageContent = (m: any) => {
-    if (m.content === '🔒 [解密失败]') {
-      return (
-        <div className="flex items-center space-x-2 text-red-500/80 p-1">
-          <ShieldAlert size={14} />
-          <span className="text-[11px] font-black uppercase">Decryption Failed</span>
-        </div>
-      );
-    }
-    
-    if (m.type === 'audio' || m.content.startsWith('data:audio/')) {
-       return <AudioPlayer src={m.content} />;
-    }
-
-    if (m.type === 'image' || m.content.startsWith('data:image/')) {
-      return <img src={m.content} className="rounded-2xl max-w-full max-h-[300px] object-cover cursor-zoom-in shadow-sm hover:brightness-95 transition-all" alt="media" onClick={() => setPreviewImage(m.content)} />;
-    }
-
+    if (m.content === '🔒 [解密失败]') return <div className="flex items-center space-x-2 text-red-500/80 p-1"><ShieldAlert size={14} /><span className="text-[11px] font-black uppercase">Decryption Failed</span></div>;
+    if (m.type === 'audio') return <AudioPlayer src={m.content} />;
+    if (m.type === 'image') return <img src={m.content} className="rounded-2xl max-w-full max-h-[300px] object-cover cursor-zoom-in shadow-sm" alt="media" onClick={() => setPreviewImage(m.content)} />;
     const isEmoji = isOnlyEmoji(m.content);
-
-    return (
-      <div className="flex flex-col">
-        <p className={`${isEmoji ? 'text-[48px] py-2' : 'text-[14px] leading-relaxed'} break-all whitespace-pre-wrap font-medium text-slate-800`}>
-          {m.content}
-        </p>
-      </div>
-    );
+    return <p className={`${isEmoji ? 'text-[48px] py-2' : 'text-[14px] leading-relaxed'} break-all whitespace-pre-wrap font-medium text-slate-800`}>{m.content}</p>;
   };
 
   if (activeRoom) {
     return (
       <div className="flex flex-col h-full animate-in fade-in duration-500 overflow-hidden relative">
         {previewImage && (
-          <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-xl flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
-            <img src={previewImage} className="max-w-full max-h-full rounded-2xl shadow-2xl animate-in zoom-in-95" alt="preview" />
-            <button className="absolute top-6 right-6 p-4 text-white bg-white/10 rounded-full backdrop-blur-md hover:bg-white/20">
-              <X size={24} />
-            </button>
+          <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-xl flex items-center justify-center p-4 animate-in zoom-in-95" onClick={() => setPreviewImage(null)}>
+            <img src={previewImage} className="max-w-full max-h-full rounded-2xl shadow-2xl" alt="preview" />
           </div>
         )}
 
         {showShare && (
           <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4" onClick={() => setShowShare(false)}>
             <div className="bg-white p-8 rounded-[40px] shadow-2xl max-w-sm w-full text-center space-y-6 animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between">
                 <h3 className="font-black text-slate-900 uppercase tracking-widest text-sm">Room Protocol</h3>
                 <button onClick={() => setShowShare(false)} className="p-2 hover:bg-slate-100 rounded-full"><X size={18}/></button>
               </div>
-              <img src={qrCodeUrl} className="w-full h-auto rounded-3xl border border-slate-100 shadow-sm" alt="QR Code" />
-              <div className="space-y-3">
-                <p className="text-xs text-slate-400 font-medium leading-relaxed">Scan to join this secure room instantly. The password is encoded in the fragment for one-tap sync.</p>
+              <div className="bg-slate-50 p-4 rounded-3xl border border-slate-100">
+                <img src={qrCodeUrl} className="w-full h-auto rounded-2xl" alt="QR Code" />
+              </div>
+              <div className="space-y-4">
+                <p className="text-xs text-slate-400 font-medium leading-relaxed px-2">Scan to join this secure room instantly. The password is encoded in the fragment for one-tap sync.</p>
                 <button 
                   onClick={() => { 
                     const url = `${window.location.origin}${window.location.pathname}#r=${activeRoom}&p=${password}`;
@@ -323,7 +261,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
                     setCopied(true);
                     setTimeout(() => setCopied(false), 2000);
                   }}
-                  className="w-full flex items-center justify-center space-x-2 bg-slate-900 text-white py-4 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-slate-200"
+                  className="w-full flex items-center justify-center space-x-3 bg-slate-900 text-white py-5 rounded-[24px] font-black text-xs uppercase tracking-widest shadow-2xl shadow-slate-300"
                 >
                   {copied ? <CheckCircle2 size={18} className="text-emerald-400" /> : <Copy size={18} />}
                   <span>{copied ? 'Link Copied' : 'Copy Room Link'}</span>
@@ -336,10 +274,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
         {/* Room Header */}
         <div className="flex-shrink-0 px-5 py-4 bg-white/70 backdrop-blur-md border-b border-slate-200/60 z-10 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div 
-              className="w-10 h-10 rounded-2xl shadow-inner border-2 border-white" 
-              style={{ background: visualFingerprint || '#000' }}
-            />
+            <div className="w-10 h-10 rounded-2xl shadow-inner border-2 border-white" style={{ background: visualFingerprint || '#000' }} />
             <div>
                <h3 className="text-sm font-black font-mono tracking-widest text-slate-800 leading-none uppercase">{activeRoom}</h3>
                <div className="flex items-center space-x-1.5 mt-1">
@@ -349,23 +284,15 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
             </div>
           </div>
           <div className="flex items-center space-x-1">
-            <button onClick={generateShareUrl} className="p-2.5 text-slate-400 hover:text-blue-500 transition-colors">
-               <QrCode size={18} />
-            </button>
+            <button onClick={generateShareUrl} className="p-2.5 text-slate-400 hover:text-blue-500 transition-colors"><QrCode size={18} /></button>
             <button onClick={() => setShowProtocol(true)} className="p-2.5 text-slate-400 hover:text-blue-500"><HelpCircle size={18}/></button>
-            <button onClick={() => { setActiveRoom(''); setCryptoKey(null); }} className="p-2.5 text-slate-400 hover:text-red-500 transition-colors"><X size={20} /></button>
+            <button onClick={() => { setActiveRoom(''); setCryptoKey(null); }} className="p-2.5 text-slate-400 hover:text-red-500"><X size={20} /></button>
           </div>
         </div>
 
         {/* Message List */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-8 space-y-6 bg-[#FDFDFD]" onClick={() => setShowEmoji(false)}>
-          {messages.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center opacity-30 select-none">
-              <Lock size={48} className="text-slate-300 mb-4" />
-              <p className="text-xs font-black uppercase tracking-[0.3em]">Channel Established</p>
-              <p className="text-[10px] mt-2">No data recorded on server</p>
-            </div>
-          )}
+          {messages.length === 0 && <div className="h-full flex flex-col items-center justify-center opacity-30 select-none"><Lock size={48} className="text-slate-300 mb-4" /><p className="text-xs font-black uppercase tracking-[0.3em]">Channel Established</p></div>}
           {messages.map((m) => {
             const isEmoji = isOnlyEmoji(m.content);
             return (
@@ -373,11 +300,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
                 <div className={`relative px-5 py-4 transition-all duration-500 ${isEmoji ? 'bg-transparent border-none' : 'bg-white border-slate-200/80 border rounded-[28px] rounded-tl-none'} text-slate-800 max-w-[85%] shadow-sm`}>
                   {renderMessageContent(m)}
                 </div>
-                {!isEmoji && (
-                  <div className="flex items-center space-x-2 mt-2 ml-1">
-                    <span className="text-[9px] font-black text-slate-300 uppercase">{m.time}</span>
-                  </div>
-                )}
+                {!isEmoji && <div className="flex items-center mt-2 ml-1"><span className="text-[9px] font-black text-slate-300 uppercase">{m.time}</span></div>}
               </div>
             );
           })}
@@ -387,43 +310,29 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
         <div className="flex-shrink-0 px-4 pb-32 pt-4 bg-gradient-to-t from-white via-white to-transparent">
           {showEmoji && (
             <div className="absolute bottom-[280px] left-4 right-4 bg-white/95 backdrop-blur-xl border border-slate-200 p-4 rounded-[32px] shadow-2xl z-50 grid grid-cols-8 gap-2 animate-in slide-in-from-bottom-4">
-              {EMOJIS.map(e => (
-                <button key={e} onClick={() => { setInputMsg(p => p + e); setShowEmoji(false); }} className="text-2xl p-2.5 hover:bg-slate-50 rounded-2xl transition-all hover:scale-110 active:scale-90">
-                  {e}
-                </button>
-              ))}
+              {EMOJIS.map(e => <button key={e} onClick={() => { setInputMsg(p => p + e); setShowEmoji(false); }} className="text-2xl p-2.5 hover:bg-slate-50 rounded-2xl transition-all active:scale-90">{e}</button>)}
             </div>
           )}
           
           <div className="relative flex flex-col space-y-3">
-            <div className={`flex items-center p-2 rounded-[32px] border border-slate-200 transition-all duration-500 bg-white shadow-2xl shadow-slate-200/30`}>
+            <div className={`flex items-center p-2 rounded-[32px] border border-slate-200 transition-all duration-500 bg-white shadow-2xl`}>
               <button 
-                onMouseDown={startRecording}
-                onMouseUp={stopRecording}
-                onTouchStart={startRecording}
-                onTouchEnd={stopRecording}
+                onMouseDown={startRecording} onMouseUp={stopRecording} onTouchStart={startRecording} onTouchEnd={stopRecording}
                 className={`p-3.5 transition-all rounded-full ${isRecording ? 'text-red-500 bg-red-50 recording-pulse' : 'text-slate-400 hover:text-blue-500'}`}
               >
                 {isRecording ? <StopCircle size={24} /> : <Mic size={24} />}
               </button>
               <button onClick={() => setShowEmoji(!showEmoji)} className="p-3.5 text-slate-400 hover:text-blue-500 transition-colors"><Smile size={24} /></button>
               <input
-                type="text"
-                value={inputMsg}
-                onChange={(e) => setInputMsg(e.target.value)}
+                type="text" value={inputMsg} onChange={(e) => setInputMsg(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !loading && sendMessage()}
-                placeholder={isRecording ? "Listening..." : "End-to-end encrypted..."}
+                placeholder={isRecording ? "Listening..." : "E2EE encrypted..."}
                 className="flex-1 min-w-0 bg-transparent px-2 py-4 text-[16px] outline-none font-medium text-slate-900"
-                disabled={loading}
               />
               <div className="flex items-center space-x-1.5 pr-2">
-                <button onClick={() => fileInputRef.current?.click()} className="p-3 text-slate-300 hover:text-blue-600 transition-colors"><ImageIcon size={22} /></button>
+                <button onClick={() => fileInputRef.current?.click()} className="p-3 text-slate-300 hover:text-blue-600"><ImageIcon size={22} /></button>
                 <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*,audio/*" onChange={handleFileUpload} />
-                <button 
-                  onClick={() => sendMessage()} 
-                  disabled={loading || !inputMsg.trim()}
-                  className={`p-4 rounded-2xl shadow-xl active:scale-95 disabled:opacity-20 transition-all bg-slate-900 text-white`}
-                >
+                <button onClick={() => sendMessage()} disabled={loading || !inputMsg.trim()} className={`p-4 rounded-2xl shadow-xl active:scale-95 disabled:opacity-20 bg-slate-900 text-white transition-all`}>
                   {loading ? <Loader2 size={22} className="animate-spin" /> : <Send size={22} strokeWidth={2.5} />}
                 </button>
               </div>
@@ -438,18 +347,12 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   return (
     <div className="h-full overflow-y-auto px-5 pt-8 pb-32 space-y-8 bg-[#F8FAFC]">
       <div className="bg-white p-10 rounded-[56px] border border-slate-200/50 shadow-2xl text-center space-y-8 animate-in slide-in-from-top-6 duration-700">
-         <div className="relative mx-auto bg-slate-900 w-24 h-24 rounded-[40px] flex items-center justify-center text-white shadow-2xl rotate-3 hover:rotate-0 transition-transform duration-500">
-            <Lock size={44} />
-            <div className="absolute -top-3 -right-3 bg-blue-600 p-2.5 rounded-full ring-8 ring-white shadow-xl"><Zap size={16} className="text-white fill-white" /></div>
-         </div>
-         <div>
-           <h2 className="text-3xl font-black text-slate-900 tracking-tight leading-tight">Secure Sync</h2>
-           <p className="text-slate-400 text-[12px] font-black uppercase tracking-[0.4em] mt-3">Stateless Communications</p>
-         </div>
+         <div className="relative mx-auto bg-slate-900 w-24 h-24 rounded-[40px] flex items-center justify-center text-white shadow-2xl rotate-3 hover:rotate-0 transition-transform duration-500"><Lock size={44} /></div>
+         <h2 className="text-3xl font-black text-slate-900 tracking-tight leading-tight">Secure Sync</h2>
          {error && <div className="p-4 bg-red-50 border border-red-100 rounded-3xl text-red-600 text-xs font-black animate-shake flex items-center justify-center space-x-2"><AlertCircle size={14}/><span>{error}</span></div>}
          <button 
           onClick={async () => { if(!password) { setError('Please set encryption key'); return; } setLoading(true); try { const res = await request<any>(apiBase, '/api/create-room'); if (res.code === 200) setActiveRoom(res.roomCode!); } finally { setLoading(false); } }}
-          className="w-full bg-slate-900 text-white py-5 rounded-[28px] font-black text-sm uppercase tracking-widest shadow-2xl shadow-slate-300 active:scale-95 transition-all flex items-center justify-center"
+          className="w-full bg-slate-900 text-white py-5 rounded-[28px] font-black text-xs uppercase tracking-widest shadow-2xl shadow-slate-300 active:scale-95 transition-all"
          >
            {loading ? <Loader2 size={20} className="animate-spin" /> : 'Deploy New Node'}
          </button>
@@ -466,29 +369,16 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
                <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" className="w-full bg-transparent font-black text-lg outline-none placeholder:text-slate-200" />
             </div>
          </div>
-         <button onClick={() => { if(!roomCode || !password) return; setActiveRoom(roomCode.toUpperCase().trim()); }} className="w-full bg-blue-600 text-white py-5 rounded-[28px] font-black text-sm uppercase shadow-2xl shadow-blue-200 hover:bg-blue-700 active:scale-95 transition-all">
-            Join Secure Environment
-         </button>
+         <button onClick={() => { if(!roomCode || !password) return; setActiveRoom(roomCode.toUpperCase().trim()); }} className="w-full bg-blue-600 text-white py-5 rounded-[28px] font-black text-xs uppercase tracking-widest shadow-2xl shadow-blue-200 active:scale-95 transition-all">Establish Channel Sync</button>
       </div>
 
       {savedRooms.length > 0 && (
         <div className="space-y-4 px-2">
-           <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center space-x-2">
-             <History size={14} />
-             <span>Active Fragments</span>
-           </h4>
+           <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center space-x-2"><History size={14} /><span>Active Fragments</span></h4>
            <div className="grid grid-cols-2 gap-3">
               {savedRooms.map(room => (
-                <button 
-                  key={room.code} 
-                  onClick={() => handleQuickJoin(room)}
-                  className="bg-white border border-slate-100 p-4 rounded-[24px] text-left hover:border-blue-200 transition-all shadow-sm active:scale-95 group"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-black font-mono text-sm text-slate-800">{room.code}</span>
-                    <Unlock size={12} className="text-slate-300 group-hover:text-blue-500" />
-                  </div>
-                  <div className="mt-1 text-[8px] font-black text-slate-400 uppercase tracking-tighter">Verified Node</div>
+                <button key={room.code} onClick={() => { setRoomCode(room.code); setPassword(room.pass); setActiveRoom(room.code); }} className="bg-white border border-slate-100 p-4 rounded-[24px] text-left hover:border-blue-200 transition-all shadow-sm active:scale-95 group">
+                  <div className="flex items-center justify-between"><span className="font-black font-mono text-sm text-slate-800">{room.code}</span><Unlock size={12} className="text-slate-300 group-hover:text-blue-500 transition-colors" /></div>
                 </button>
               ))}
            </div>

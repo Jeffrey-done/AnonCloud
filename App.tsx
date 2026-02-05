@@ -7,7 +7,6 @@ import { MessageSquare, Users, Settings, Shield } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>(TabType.ROOM);
-  // 用户自定义稳定 API 域名
   const DEFAULT_API = 'https://anon-chat-api.64209310.xyz';
 
   const [apiBase, setApiBase] = useState<string>(() => {
@@ -23,23 +22,6 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('anon_chat_api_base', apiBase);
   }, [apiBase]);
-
-  // Handle URL fragment for sharing
-  useEffect(() => {
-    const handleHash = () => {
-      const hash = window.location.hash.substring(1);
-      if (hash) {
-        const params = new URLSearchParams(hash);
-        const r = params.get('r');
-        const p = params.get('p');
-        if (r) localStorage.setItem('anon_last_room_input', r);
-        if (p) localStorage.setItem('anon_last_room_pass', p);
-        // Clean hash to keep it private after parsing
-        window.history.replaceState(null, '', window.location.pathname);
-      }
-    };
-    handleHash();
-  }, []);
 
   return (
     <div className="h-[100dvh] flex flex-col bg-[#F8FAFC] overflow-hidden">
@@ -71,7 +53,7 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content Area - Scrollable internally */}
+      {/* Main Content Area */}
       <main className="flex-1 max-w-2xl w-full mx-auto relative overflow-hidden">
         {activeTab === TabType.ROOM && <RoomView apiBase={apiBase} />}
         {activeTab === TabType.FRIEND && <FriendView apiBase={apiBase} />}
