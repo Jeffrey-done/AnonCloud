@@ -8,20 +8,13 @@ export const request = async <T,>(
   body?: any
 ): Promise<ApiResponse<T>> => {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 12000); // 增加到12秒，适应波动网络
+  const timeoutId = setTimeout(() => controller.abort(), 8000); // 8秒超时
 
   try {
     // 鲁棒的 URL 拼接逻辑
-    let url: string;
+    const cleanBase = apiBase ? apiBase.replace(/\/+$/, '') : '';
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-    
-    if (!apiBase || apiBase === window.location.origin) {
-      // 如果是同源，直接使用相对路径，这能绕过很多跨域和DNS问题
-      url = cleanEndpoint;
-    } else {
-      const cleanBase = apiBase.replace(/\/+$/, '');
-      url = `${cleanBase}${cleanEndpoint}`;
-    }
+    const url = `${cleanBase}${cleanEndpoint}`;
     
     const options: RequestInit = {
       method,
@@ -40,21 +33,21 @@ export const request = async <T,>(
 
     if (res.status === 500) {
       const errorData = await res.json().catch(() => ({}));
-      return { code: 500, msg: errorData.msg || "服务器繁忙或配置错误。" };
+      return { code: 500, msg: errorData.msg || "服务器内部错误，请检查 KV 绑定。" };
     }
 
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({}));
-      return { code: res.status, msg: errorData.msg || `网络请求异常 (${res.status})` };
+      return { code: res.status, msg: errorData.msg || `请求失败 (${res.status})` };
     }
     
     return await res.json();
   } catch (err: any) {
     clearTimeout(timeoutId);
     if (err.name === 'AbortError') {
-      return { code: 408, msg: '连接超时。这通常是由于网络审查导致的，请尝试更换节点或开启代理。' };
+      return { code: 408, msg: '连接超时。请检查网络环境或尝试重新连接。' };
     }
     console.error('API Request Failed:', err);
-    return { code: 500, msg: '无法连接到 API 节点。建议前往设置页面检查 API 地址或切换节点。' };
+    return { code: 500, msg: '网络连接异常。请确保 API 地址正确且网络通畅。' };
   }
 };

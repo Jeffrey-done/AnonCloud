@@ -1,50 +1,27 @@
-
 import React, { useState, useEffect } from 'react';
 import { TabType } from './types';
 import RoomView from './components/RoomView';
 import FriendView from './components/FriendView';
 import SettingsView from './components/SettingsView';
-import { MessageSquare, Users, Settings, Shield, Activity } from 'lucide-react';
+import { MessageSquare, Users, Settings, Shield } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>(TabType.ROOM);
-  // 动态获取当前域名作为默认 API
-  const DEFAULT_API = typeof window !== 'undefined' ? window.location.origin : '';
+  const DEFAULT_API = 'https://anon-chat-api.64209310.xyz';
 
   const [apiBase, setApiBase] = useState<string>(() => {
     const stored = localStorage.getItem('anon_chat_api_base');
+    if (stored && stored.includes('workers.dev')) {
+      return DEFAULT_API;
+    }
     return stored || DEFAULT_API;
   });
 
-  const [latency, setLatency] = useState<number | null>(null);
+  const isDefault = apiBase === DEFAULT_API || apiBase === '';
 
   useEffect(() => {
     localStorage.setItem('anon_chat_api_base', apiBase);
-    
-    // 简易延迟测试
-    const checkLatency = async () => {
-      const start = Date.now();
-      try {
-        const controller = new AbortController();
-        const id = setTimeout(() => controller.abort(), 3000);
-        await fetch(`${apiBase.replace(/\/+$/, '')}/api/get-msg?roomCode=PING`, { 
-          method: 'GET', 
-          signal: controller.signal,
-          mode: 'no-cors' 
-        });
-        clearTimeout(id);
-        setLatency(Date.now() - start);
-      } catch (e) {
-        setLatency(-1); // 代表断开
-      }
-    };
-    
-    checkLatency();
-    const timer = setInterval(checkLatency, 15000);
-    return () => clearInterval(timer);
   }, [apiBase]);
-
-  const isDefault = apiBase === DEFAULT_API || apiBase === '';
 
   return (
     <div className="h-[100dvh] flex flex-col bg-[#F8FAFC] overflow-hidden">
@@ -61,23 +38,17 @@ const App: React.FC = () => {
             </div>
           </div>
           
-          <div className="flex items-center space-x-2">
-            {latency !== null && (
-              <div className={`flex items-center space-x-1 px-2 py-1 rounded-full text-[9px] font-bold border transition-colors ${
-                latency === -1 ? 'bg-red-50 text-red-500 border-red-100' : 
-                latency < 300 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
-                'bg-amber-50 text-amber-600 border-amber-100'
-              }`}>
-                <Activity size={10} />
-                <span>{latency === -1 ? 'OFFLINE' : `${latency}ms`}</span>
+          <div className="flex items-center">
+            {isDefault ? (
+              <div className="flex items-center space-x-1.5 text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full text-[10px] font-black border border-emerald-100 shadow-sm shadow-emerald-100/50">
+                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                <span>ACTIVE NODE</span>
+              </div>
+            ) : (
+              <div className="flex items-center space-x-1 text-amber-600 bg-amber-50 px-3 py-1.5 rounded-full text-[10px] font-black border border-amber-100">
+                <span>CUSTOM PROXY</span>
               </div>
             )}
-            <div className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-[10px] font-black border shadow-sm transition-all ${
-              isDefault ? 'text-blue-600 bg-blue-50 border-blue-100 shadow-blue-100/50' : 'text-amber-600 bg-amber-50 border-amber-100'
-            }`}>
-              <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${isDefault ? 'bg-blue-500' : 'bg-amber-500'}`} />
-              <span>{isDefault ? 'LOCAL NODE' : 'PROXY NODE'}</span>
-            </div>
           </div>
         </div>
       </header>
