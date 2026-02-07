@@ -8,9 +8,11 @@ export const request = async <T,>(
   body?: any
 ): Promise<ApiResponse<T>> => {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000); // 8秒超时
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 增加到10秒
 
   try {
+    const isSameOrigin = typeof window !== 'undefined' && apiBase === window.location.origin;
+    
     // 鲁棒的 URL 拼接逻辑
     const cleanBase = apiBase ? apiBase.replace(/\/+$/, '') : '';
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
@@ -22,6 +24,9 @@ export const request = async <T,>(
         'Content-Type': 'application/json',
       },
       signal: controller.signal,
+      // 如果是同源，使用 same-origin 模式，彻底免去 CORS 烦恼
+      mode: isSameOrigin ? 'same-origin' : 'cors',
+      credentials: isSameOrigin ? 'include' : 'same-origin',
     };
 
     if (method === 'POST' && body) {
@@ -48,6 +53,6 @@ export const request = async <T,>(
       return { code: 408, msg: '连接超时。请检查网络环境或尝试重新连接。' };
     }
     console.error('API Request Failed:', err);
-    return { code: 500, msg: '网络连接异常。请确保 API 地址正确且网络通畅。' };
+    return { code: 500, msg: '网络连接异常。由于运营商拦截，建议将此应用部署到自己的 Cloudflare 域名下。' };
   }
 };

@@ -4,32 +4,33 @@ import { TabType } from './types';
 import RoomView from './components/RoomView';
 import FriendView from './components/FriendView';
 import SettingsView from './components/SettingsView';
-import { MessageSquare, Users, Settings, Shield, AlertCircle, WifiOff } from 'lucide-react';
+import { MessageSquare, Users, Settings, Shield, AlertCircle, WifiOff, Zap } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>(TabType.ROOM);
   
-  // 核心改进：优先使用当前域名作为 API 节点，解决不同网络下的阻断问题
+  // 核心改进：默认不写死任何外部域名
+  // 只要你能打开这个网页，我们就直接请求当前域名的 /api
   const getAutoApi = () => {
     if (typeof window !== 'undefined') {
-      const origin = window.location.origin;
-      // 如果是在 localhost 或 pages.dev 域名下，直接使用同域 API
-      if (origin.includes('localhost') || origin.includes('pages.dev') || origin.includes('workers.dev')) {
-        return origin;
-      }
+      // 返回当前域名的 origin，例如 https://xxx.pages.dev
+      return window.location.origin;
     }
-    return 'https://anon-chat-api.64209310.xyz';
+    return '';
   };
 
   const DEFAULT_API = getAutoApi();
 
   const [apiBase, setApiBase] = useState<string>(() => {
     const stored = localStorage.getItem('anon_chat_api_base');
-    return stored || DEFAULT_API;
+    // 如果存储的是旧的外部 API，或者没有存储，则强制使用当前域名 API
+    if (!stored || stored.includes('64209310.xyz')) {
+      return DEFAULT_API;
+    }
+    return stored;
   });
 
   const [isOnline, setIsOnline] = useState(true);
-  const [showWarning, setShowWarning] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('anon_chat_api_base', apiBase);
@@ -38,25 +39,25 @@ const App: React.FC = () => {
       try {
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), 4000);
-        // 尝试心跳检测
+        // 使用同源心跳检测
         const res = await fetch(`${apiBase.replace(/\/+$/, '')}/api/get-msg?roomCode=PING`, { 
           signal: controller.signal,
-          mode: 'cors',
+          mode: apiBase === window.location.origin ? 'same-origin' : 'cors',
           cache: 'no-cache'
         });
         clearTimeout(id);
         setIsOnline(res.ok);
-        setShowWarning(!res.ok);
       } catch (e) {
         setIsOnline(false);
-        setShowWarning(true);
       }
     };
     
     checkConnection();
-    const timer = setInterval(checkConnection, 8000);
+    const timer = setInterval(checkConnection, 10000);
     return () => clearInterval(timer);
   }, [apiBase]);
+
+  const isLocalNode = apiBase === window.location.origin;
 
   return (
     <div className="h-[100dvh] flex flex-col bg-[#F8FAFC] overflow-hidden">
@@ -75,33 +76,24 @@ const App: React.FC = () => {
           
           <div className="flex items-center">
             {isOnline ? (
-              <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-[10px] font-black border shadow-sm transition-all text-emerald-600 bg-emerald-50 border-emerald-100">
-                <div className="w-1.5 h-1.5 rounded-full animate-pulse bg-emerald-500" />
-                <span>LINK ACTIVE</span>
+              <div className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-[10px] font-black border shadow-sm transition-all ${
+                isLocalNode ? 'text-blue-600 bg-blue-50 border-blue-100' : 'text-emerald-600 bg-emerald-50 border-emerald-100'
+              }`}>
+                <Zap size={12} className={isLocalNode ? 'fill-blue-500' : 'fill-emerald-500'} />
+                <span>{isLocalNode ? 'DIRECT TUNNEL' : 'EXTERNAL NODE'}</span>
               </div>
             ) : (
               <button 
                 onClick={() => setActiveTab(TabType.SETTINGS)}
-                className="flex items-center space-x-1.5 text-red-600 bg-red-50 px-3 py-1.5 rounded-full text-[10px] font-black border border-red-100 animate-bounce"
+                className="flex items-center space-x-1.5 text-red-600 bg-red-50 px-3 py-1.5 rounded-full text-[10px] font-black border border-red-100 animate-pulse"
               >
                 <AlertCircle size={12} />
-                <span>CONNECTION BLOCKED</span>
+                <span>LINK BLOCKED</span>
               </button>
             )}
           </div>
         </div>
       </header>
-
-      {/* Network Warning Banner */}
-      {showWarning && (
-        <div className="bg-amber-50 border-b border-amber-100 px-5 py-2 flex items-center justify-between animate-in slide-in-from-top duration-300">
-          <div className="flex items-center space-x-2 text-amber-700">
-            <WifiOff size={14} />
-            <span className="text-[10px] font-bold uppercase tracking-tight">检测到网络不稳定，请在设置中配置专属自定义节点。</span>
-          </div>
-          <button onClick={() => setActiveTab(TabType.SETTINGS)} className="text-[10px] font-black text-amber-900 underline uppercase">去配置</button>
-        </div>
-      )}
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-2xl w-full mx-auto relative overflow-hidden">
