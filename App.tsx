@@ -1,63 +1,27 @@
-
 import React, { useState, useEffect } from 'react';
 import { TabType } from './types';
 import RoomView from './components/RoomView';
 import FriendView from './components/FriendView';
 import SettingsView from './components/SettingsView';
-import { MessageSquare, Users, Settings, Shield, AlertCircle, WifiOff, Zap } from 'lucide-react';
+import { MessageSquare, Users, Settings, Shield } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>(TabType.ROOM);
-  
-  // 核心改进：默认不写死任何外部域名
-  // 只要你能打开这个网页，我们就直接请求当前域名的 /api
-  const getAutoApi = () => {
-    if (typeof window !== 'undefined') {
-      // 返回当前域名的 origin，例如 https://xxx.pages.dev
-      return window.location.origin;
-    }
-    return '';
-  };
-
-  const DEFAULT_API = getAutoApi();
+  const DEFAULT_API = 'https://anon-chat-api.64209310.xyz';
 
   const [apiBase, setApiBase] = useState<string>(() => {
     const stored = localStorage.getItem('anon_chat_api_base');
-    // 如果存储的是旧的外部 API，或者没有存储，则强制使用当前域名 API
-    if (!stored || stored.includes('64209310.xyz')) {
+    if (stored && stored.includes('workers.dev')) {
       return DEFAULT_API;
     }
-    return stored;
+    return stored || DEFAULT_API;
   });
 
-  const [isOnline, setIsOnline] = useState(true);
+  const isDefault = apiBase === DEFAULT_API || apiBase === '';
 
   useEffect(() => {
     localStorage.setItem('anon_chat_api_base', apiBase);
-    
-    const checkConnection = async () => {
-      try {
-        const controller = new AbortController();
-        const id = setTimeout(() => controller.abort(), 4000);
-        // 使用同源心跳检测
-        const res = await fetch(`${apiBase.replace(/\/+$/, '')}/api/get-msg?roomCode=PING`, { 
-          signal: controller.signal,
-          mode: apiBase === window.location.origin ? 'same-origin' : 'cors',
-          cache: 'no-cache'
-        });
-        clearTimeout(id);
-        setIsOnline(res.ok);
-      } catch (e) {
-        setIsOnline(false);
-      }
-    };
-    
-    checkConnection();
-    const timer = setInterval(checkConnection, 10000);
-    return () => clearInterval(timer);
   }, [apiBase]);
-
-  const isLocalNode = apiBase === window.location.origin;
 
   return (
     <div className="h-[100dvh] flex flex-col bg-[#F8FAFC] overflow-hidden">
@@ -75,21 +39,15 @@ const App: React.FC = () => {
           </div>
           
           <div className="flex items-center">
-            {isOnline ? (
-              <div className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-[10px] font-black border shadow-sm transition-all ${
-                isLocalNode ? 'text-blue-600 bg-blue-50 border-blue-100' : 'text-emerald-600 bg-emerald-50 border-emerald-100'
-              }`}>
-                <Zap size={12} className={isLocalNode ? 'fill-blue-500' : 'fill-emerald-500'} />
-                <span>{isLocalNode ? 'DIRECT TUNNEL' : 'EXTERNAL NODE'}</span>
+            {isDefault ? (
+              <div className="flex items-center space-x-1.5 text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full text-[10px] font-black border border-emerald-100 shadow-sm shadow-emerald-100/50">
+                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                <span>ACTIVE NODE</span>
               </div>
             ) : (
-              <button 
-                onClick={() => setActiveTab(TabType.SETTINGS)}
-                className="flex items-center space-x-1.5 text-red-600 bg-red-50 px-3 py-1.5 rounded-full text-[10px] font-black border border-red-100 animate-pulse"
-              >
-                <AlertCircle size={12} />
-                <span>LINK BLOCKED</span>
-              </button>
+              <div className="flex items-center space-x-1 text-amber-600 bg-amber-50 px-3 py-1.5 rounded-full text-[10px] font-black border border-amber-100">
+                <span>CUSTOM PROXY</span>
+              </div>
             )}
           </div>
         </div>
