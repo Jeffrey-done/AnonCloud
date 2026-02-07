@@ -8,18 +8,15 @@ export const request = async <T,>(
   body?: any
 ): Promise<ApiResponse<T>> => {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000); // 缩短超时到10秒，更快反馈
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // 延长超时至 30s，适应大陆网络
 
   try {
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
     
-    // 强制构造完整的 URL，避免浏览器对相对路径的处理差异
     let url: string;
     if (!apiBase || apiBase.trim() === '') {
-      // 合并部署模式：使用当前网页所在的域名
       url = `${window.location.origin}${cleanEndpoint}`;
     } else {
-      // 代理模式：使用用户填写的域名
       const cleanBase = apiBase.replace(/\/+$/, '');
       url = `${cleanBase}${cleanEndpoint}`;
     }
@@ -27,7 +24,8 @@ export const request = async <T,>(
     const options: RequestInit = {
       method,
       headers: {
-        'Content-Type': 'application/json',
+        // 重要：使用 text/plain 规避浏览器发起 OPTIONS 预检请求，显著提升大陆直连速度
+        'Content-Type': 'text/plain;charset=UTF-8',
       },
       signal: controller.signal,
     };
@@ -39,19 +37,18 @@ export const request = async <T,>(
     const res = await fetch(url, options);
     clearTimeout(timeoutId);
 
-    // 如果返回 500，通常是 KV 没绑定
     if (res.status === 500) {
       const errorData = await res.json().catch(() => ({}));
       return { 
         code: 500, 
-        msg: errorData.msg || "后端服务异常：请检查 Cloudflare Pages 是否绑定了 CHAT_KV" 
+        msg: errorData.msg || "服务器内部错误：请检查 CHAT_KV 绑定" 
       };
     }
 
     if (!res.ok) {
       return { 
         code: res.status, 
-        msg: `接口访问失败 (${res.status})，请确认域名是否被拦截` 
+        msg: `访问受限 (${res.status})，请确保通过自定义域名访问` 
       };
     }
     
@@ -61,13 +58,12 @@ export const request = async <T,>(
     console.error("API Request Error:", err);
     
     if (err.name === 'AbortError') {
-      return { code: 408, msg: '网络连接超时：请检查自定义域名解析或尝试切换网络' };
+      return { code: 408, msg: '连接超时：大陆直连较慢，请稍后重试' };
     }
     
-    // 如果是 fetch 失败（TypeError），通常是域名无法解析或被墙
     return { 
       code: 500, 
-      msg: '无法连接到服务器：请确认是否使用了自定义域名，且 DNS 解析已生效' 
+      msg: '连接服务器失败：请检查网络或确认 DNS 是否生效' 
     };
   }
 };
