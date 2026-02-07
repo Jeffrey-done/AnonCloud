@@ -161,9 +161,16 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     let interval: any;
     if (activeRoom && cryptoKey) {
       fetchMessages();
-      interval = setInterval(fetchMessages, 3000);
+      interval = setInterval(fetchMessages, 4000);
+
+      // 移动端优化：当页面重新回到前台时，立即尝试刷新
+      const handleFocus = () => fetchMessages();
+      window.addEventListener('focus', handleFocus);
+      return () => {
+        clearInterval(interval);
+        window.removeEventListener('focus', handleFocus);
+      };
     }
-    return () => clearInterval(interval);
   }, [activeRoom, cryptoKey, fetchMessages]);
 
   useEffect(() => {
@@ -229,7 +236,6 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const renderMessageContent = (m: any) => {
     if (m.content === '🔒 [解密失败]') return <div className="flex items-center space-x-2 text-red-500/80 p-1"><ShieldAlert size={14} /><span className="text-[11px] font-black uppercase">Decryption Failed</span></div>;
     
-    // 强制检测是否为 Data URL 以防止类型标志错误
     const content = m.content as string;
     const isMedia = isDataUrl(content);
 
