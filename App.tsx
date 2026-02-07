@@ -1,9 +1,10 @@
+
 import React, { useState, useEffect } from 'react';
 import { TabType } from './types';
 import RoomView from './components/RoomView';
 import FriendView from './components/FriendView';
 import SettingsView from './components/SettingsView';
-import { MessageSquare, Users, Settings, Shield } from 'lucide-react';
+import { MessageSquare, Users, Settings, Shield, AlertCircle } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>(TabType.ROOM);
@@ -11,17 +12,37 @@ const App: React.FC = () => {
 
   const [apiBase, setApiBase] = useState<string>(() => {
     const stored = localStorage.getItem('anon_chat_api_base');
-    if (stored && stored.includes('workers.dev')) {
+    // 如果存储的还是老的 workers.dev 域名，强制重置为默认或空
+    if (stored && (stored.includes('workers.dev'))) {
       return DEFAULT_API;
     }
     return stored || DEFAULT_API;
   });
 
-  const isDefault = apiBase === DEFAULT_API || apiBase === '';
+  const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
     localStorage.setItem('anon_chat_api_base', apiBase);
+    
+    // 定期检查 API 连通性
+    const checkConnection = async () => {
+      try {
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), 3000);
+        const res = await fetch(`${apiBase.replace(/\/+$/, '')}/api/get-msg?roomCode=PING`, { signal: controller.signal });
+        clearTimeout(id);
+        setIsOnline(res.ok);
+      } catch (e) {
+        setIsOnline(false);
+      }
+    };
+    
+    checkConnection();
+    const timer = setInterval(checkConnection, 10000);
+    return () => clearInterval(timer);
   }, [apiBase]);
+
+  const isDefault = apiBase === DEFAULT_API;
 
   return (
     <div className="h-[100dvh] flex flex-col bg-[#F8FAFC] overflow-hidden">
@@ -39,15 +60,21 @@ const App: React.FC = () => {
           </div>
           
           <div className="flex items-center">
-            {isDefault ? (
-              <div className="flex items-center space-x-1.5 text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full text-[10px] font-black border border-emerald-100 shadow-sm shadow-emerald-100/50">
-                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                <span>ACTIVE NODE</span>
+            {isOnline ? (
+              <div className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-[10px] font-black border shadow-sm transition-all ${
+                isDefault ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : 'text-blue-600 bg-blue-50 border-blue-100'
+              }`}>
+                <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${isDefault ? 'bg-emerald-500' : 'bg-blue-500'}`} />
+                <span>{isDefault ? 'ACTIVE NODE' : 'CUSTOM NODE'}</span>
               </div>
             ) : (
-              <div className="flex items-center space-x-1 text-amber-600 bg-amber-50 px-3 py-1.5 rounded-full text-[10px] font-black border border-amber-100">
-                <span>CUSTOM PROXY</span>
-              </div>
+              <button 
+                onClick={() => setActiveTab(TabType.SETTINGS)}
+                className="flex items-center space-x-1.5 text-red-600 bg-red-50 px-3 py-1.5 rounded-full text-[10px] font-black border border-red-100 animate-pulse"
+              >
+                <AlertCircle size={12} />
+                <span>OFFLINE - CONFIGURE</span>
+              </button>
             )}
           </div>
         </div>
