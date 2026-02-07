@@ -1,4 +1,3 @@
-
 interface Env {
   CHAT_KV: any;
 }
@@ -13,7 +12,6 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
-    "Content-Type": "application/json",
   };
 
   if (request.method === "OPTIONS") {
@@ -23,7 +21,7 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
   if (!kv) {
     return new Response(JSON.stringify({ code: 500, msg: "未检测到 CHAT_KV 绑定。" }), { 
       status: 500, 
-      headers: corsHeaders 
+      headers: { ...corsHeaders, "Content-Type": "application/json" } 
     });
   }
 
@@ -36,17 +34,6 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
 
   const generateMessageId = () => `MSG-${Date.now()}-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
 
-  // 辅助函数：安全解析 JSON Body
-  const getJsonBody = async (req: Request) => {
-    try {
-      // 无论前端传什么 Content-Type，我们都尝试作为文本读取并解析
-      const text = await req.text();
-      return JSON.parse(text);
-    } catch (e) {
-      return {};
-    }
-  };
-
   // --- ROOM CHAT ENDPOINTS ---
 
   if (path === "/api/create-room") {
@@ -56,26 +43,29 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
   }
 
   if (path === "/api/send-msg") {
-    const { roomCode, msg, type = 'text' } = await getJsonBody(request);
-    if (!roomCode || !msg) return new Response(JSON.stringify({ code: 400, msg: "参数错误" }), { headers: corsHeaders });
-
-    const key = `room:msg:${roomCode}`;
-    const rawData = await kv.get(key);
-    if (rawData === null) return new Response(JSON.stringify({ code: 404, msg: "房间不存在" }), { headers: corsHeaders });
-    
-    const data = JSON.parse(rawData);
-    data.push({ 
-      id: generateMessageId(),
-      sender: 'anonymous', 
-      time: new Date().toLocaleTimeString('zh-CN', { hour12: false }), 
-      timestamp: Date.now(),
-      type,
-      content: msg,
-      read: false
-    });
-    if (data.length > 50) data.shift(); 
-    await kv.put(key, JSON.stringify(data), { expirationTtl: 43200 });
-    return new Response(JSON.stringify({ code: 200 }), { headers: corsHeaders });
+    try {
+      const { roomCode, msg, type = 'text' } = await request.json();
+      const key = `room:msg:${roomCode}`;
+      const rawData = await kv.get(key);
+      if (rawData === null) return new Response(JSON.stringify({ code: 404, msg: "房间不存在" }), { headers: corsHeaders });
+      
+      const data = JSON.parse(rawData);
+      data.push({ 
+        id: generateMessageId(),
+        sender: 'anonymous', 
+        time: new Date().toLocaleTimeString('zh-CN', { hour12: false }), 
+        timestamp: Date.now(),
+        type,
+        content: msg,
+        read: false
+      });
+      // Limit message history to 50
+      if (data.length > 50) data.shift(); 
+      await kv.put(key, JSON.stringify(data), { expirationTtl: 43200 });
+      return new Response(JSON.stringify({ code: 200 }), { headers: corsHeaders });
+    } catch (e) {
+      return new Response(JSON.stringify({ code: 400, msg: "Invalid Request" }), { status: 400, headers: corsHeaders });
+    }
   }
 
   if (path === "/api/get-msg") {
@@ -83,7 +73,10 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
     const key = `room:msg:${code}`;
     const rawData = await kv.get(key);
     if (!rawData) return new Response(JSON.stringify({ code: 200, data: [] }), { headers: corsHeaders });
-    return new Response(JSON.stringify({ code: 200, data: JSON.parse(rawData) }), { headers: corsHeaders });
+
+    let data = JSON.parse(rawData);
+    // 移除了过期的过滤逻辑，保持消息在 KV 过期时间内的稳定存在
+    return new Response(JSON.stringify({ code: 200, data }), { headers: corsHeaders });
   }
 
   // --- FRIEND CHAT ENDPOINTS ---
@@ -95,41 +88,53 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
   }
 
   if (path === "/api/add-friend") {
-    const { myCode, targetCode } = await getJsonBody(request);
-    if (!myCode || !targetCode) return new Response(JSON.stringify({ code: 400, msg: "Codes required" }), { headers: corsHeaders });
-    
-    const targetExists = await kv.get(`friend:id:${targetCode}`);
-    if (!targetExists) return new Response(JSON.stringify({ code: 404, msg: "目标身份不存在" }), { headers: corsHeaders });
+    try {
+      const { myCode, targetCode } = await request.json();
+      if (!myCode || !targetCode) return new Response(JSON.stringify({ code: 400, msg: "Codes required" }), { status: 400, headers: corsHeaders });
+      
+      const targetExists = await kv.get(`friend:id:${targetCode}`);
+      if (!targetExists) return new Response(JSON.stringify({ code: 404, msg: "目标身份不存在" }), { headers: corsHeaders });
 
-    const pairKey = [myCode, targetCode].sort().join(':');
-    const channelKey = `friend:msg:${pairKey}`;
-    const existing = await kv.get(channelKey);
-    if (!existing) await kv.put(channelKey, "[]", { expirationTtl: 86400 * 3 });
+      const pairKey = [myCode, targetCode].sort().join(':');
+      const channelKey = `friend:msg:${pairKey}`;
+      
+      const existing = await kv.get(channelKey);
+      if (!existing) {
+        await kv.put(channelKey, "[]", { expirationTtl: 86400 * 3 });
+      }
 
-    return new Response(JSON.stringify({ code: 200, msg: "Pair established" }), { headers: corsHeaders });
+      return new Response(JSON.stringify({ code: 200, msg: "Pair established" }), { headers: corsHeaders });
+    } catch (e) {
+      return new Response(JSON.stringify({ code: 400, msg: "Invalid Request" }), { status: 400, headers: corsHeaders });
+    }
   }
 
   if (path === "/api/send-friend-msg") {
-    const { myCode, targetCode, msg, type = 'text' } = await getJsonBody(request);
-    if (!myCode || !targetCode || !msg) return new Response(JSON.stringify({ code: 400, msg: "Missing fields" }), { headers: corsHeaders });
+    try {
+      const { myCode, targetCode, msg, type = 'text' } = await request.json();
+      const pairKey = [myCode, targetCode].sort().join(':');
+      const key = `friend:msg:${pairKey}`;
+      
+      const rawData = await kv.get(key);
+      let data = rawData ? JSON.parse(rawData) : [];
+      
+      data.push({ 
+        id: generateMessageId(), 
+        sender: myCode, 
+        time: new Date().toLocaleTimeString('zh-CN', { hour12: false }), 
+        timestamp: Date.now(),
+        type,
+        content: msg,
+        read: false
+      });
 
-    const pairKey = [myCode, targetCode].sort().join(':');
-    const key = `friend:msg:${pairKey}`;
-    const rawData = await kv.get(key);
-    let data = rawData ? JSON.parse(rawData) : [];
-    
-    data.push({ 
-      id: generateMessageId(), 
-      sender: myCode, 
-      time: new Date().toLocaleTimeString('zh-CN', { hour12: false }), 
-      timestamp: Date.now(),
-      type,
-      content: msg,
-      read: false
-    });
-    if (data.length > 100) data.shift();
-    await kv.put(key, JSON.stringify(data), { expirationTtl: 86400 * 3 });
-    return new Response(JSON.stringify({ code: 200 }), { headers: corsHeaders });
+      if (data.length > 100) data.shift();
+      await kv.put(key, JSON.stringify(data), { expirationTtl: 86400 * 3 });
+      
+      return new Response(JSON.stringify({ code: 200 }), { headers: corsHeaders });
+    } catch (e) {
+      return new Response(JSON.stringify({ code: 400, msg: "Error sending message" }), { status: 400, headers: corsHeaders });
+    }
   }
 
   if (path === "/api/get-friend-msg") {
@@ -140,6 +145,7 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
     const pairKey = [myCode, targetCode].sort().join(':');
     const key = `friend:msg:${pairKey}`;
     const rawData = await kv.get(key);
+    
     let data = rawData ? JSON.parse(rawData) : [];
     
     let changed = false;
@@ -151,7 +157,10 @@ export const onRequest = async (context: { request: Request; env: Env; params: a
       return m;
     });
 
-    if (changed) await kv.put(key, JSON.stringify(processed), { expirationTtl: 86400 * 3 });
+    if (changed) {
+      await kv.put(key, JSON.stringify(processed), { expirationTtl: 86400 * 3 });
+    }
+
     return new Response(JSON.stringify({ code: 200, data: processed }), { headers: corsHeaders });
   }
 
