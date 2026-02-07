@@ -7,7 +7,7 @@ import ProtocolInfo from './ProtocolInfo';
 import QRCode from 'qrcode';
 import { 
   Send, Copy, CheckCircle2, Image as ImageIcon, 
-  Smile, X, AlertCircle, Loader2, Lock, Unlock, HelpCircle, Zap, History, Mic, StopCircle, Play, Pause, ShieldAlert, ShieldCheck, QrCode, Film
+  Smile, X, AlertCircle, Loader2, Lock, Unlock, HelpCircle, Zap, History, Mic, StopCircle, Play, Pause, ShieldAlert, ShieldCheck, QrCode, Film, WifiOff
 } from 'lucide-react';
 
 const EMOJIS = ['😀', '😂', '😍', '🤔', '😎', '🔥', '✨', '👍', '🙏', '❤️', '🎉', '👋', '👀', '🌚', '🤫', '💀'];
@@ -75,6 +75,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const [copied, setCopied] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [apiError, setApiError] = useState<string | null>(null);
   const [showProtocol, setShowProtocol] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
@@ -144,7 +145,9 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const fetchMessages = useCallback(async () => {
     if (!activeRoom || !cryptoKey) return;
     const res = await request<any[]>(apiBase, `/api/get-msg?roomCode=${activeRoom}`);
+    
     if (res.code === 200 && res.data) {
+      setApiError(null); // 连接正常
       const decryptedMsgs = await Promise.all(res.data.map(async (m) => {
         const cacheKey = `${m.id || 'NOID'}-${m.content.substring(0, 20)}`;
         if (decryptedCache.current[cacheKey]) return { ...m, content: decryptedCache.current[cacheKey] };
@@ -154,6 +157,8 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
         return { ...m, content: finalContent };
       }));
       setMessages(decryptedMsgs);
+    } else {
+      setApiError(res.msg || '连接不稳定');
     }
   }, [activeRoom, cryptoKey, apiBase]);
 
@@ -178,8 +183,13 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
     try {
       const encrypted = await encryptContent(cryptoKey, rawContent);
       const res = await request<any>(apiBase, '/api/send-msg', 'POST', { roomCode: activeRoom, msg: encrypted, type });
-      if (res.code === 200) fetchMessages();
-      else setError(res.msg || '发送失败');
+      if (res.code === 200) {
+        setApiError(null);
+        fetchMessages();
+      } else {
+        setError(res.msg || '发送失败');
+        setApiError(res.msg || '连接失败');
+      }
     } catch (e: any) { setError('加密失败'); }
     finally { setLoading(false); }
   };
@@ -229,7 +239,6 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   const renderMessageContent = (m: any) => {
     if (m.content === '🔒 [解密失败]') return <div className="flex items-center space-x-2 text-red-500/80 p-1"><ShieldAlert size={14} /><span className="text-[11px] font-black uppercase">Decryption Failed</span></div>;
     
-    // 强制检测是否为 Data URL 以防止类型标志错误
     const content = m.content as string;
     const isMedia = isDataUrl(content);
 
@@ -263,6 +272,14 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
   if (activeRoom) {
     return (
       <div className="flex flex-col h-full animate-in fade-in duration-500 overflow-hidden relative">
+        {/* API Error Toast */}
+        {apiError && (
+          <div className="absolute top-20 left-4 right-4 z-[60] bg-red-600 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center space-x-3 animate-in slide-in-from-top-4">
+            <WifiOff size={20} className="flex-shrink-0" />
+            <p className="text-[11px] font-bold leading-tight">{apiError}</p>
+          </div>
+        )}
+
         {previewImage && (
           <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-xl flex items-center justify-center p-4 animate-in zoom-in-95" onClick={() => setPreviewImage(null)}>
             <img src={previewImage} className="max-w-full max-h-full rounded-2xl shadow-2xl" alt="preview" />
@@ -305,8 +322,10 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
             <div>
                <h3 className="text-sm font-black font-mono tracking-widest text-slate-800 leading-none uppercase">{activeRoom}</h3>
                <div className="flex items-center space-x-1.5 mt-1">
-                 <ShieldCheck size={12} className="text-emerald-500" />
-                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">E2E Secure Channel</span>
+                 <ShieldCheck size={12} className={`transition-colors ${apiError ? 'text-red-400' : 'text-emerald-500'}`} />
+                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">
+                   {apiError ? 'Sync Interrupted' : 'E2E Secure Channel'}
+                 </span>
                </div>
             </div>
           </div>
@@ -319,7 +338,7 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
 
         {/* Message List */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-8 space-y-6 bg-[#FDFDFD]" onClick={() => setShowEmoji(false)}>
-          {messages.length === 0 && <div className="h-full flex flex-col items-center justify-center opacity-30 select-none"><Lock size={48} className="text-slate-300 mb-4" /><p className="text-xs font-black uppercase tracking-[0.3em]">Channel Established</p></div>}
+          {messages.length === 0 && !apiError && <div className="h-full flex flex-col items-center justify-center opacity-30 select-none"><Lock size={48} className="text-slate-300 mb-4" /><p className="text-xs font-black uppercase tracking-[0.3em]">Channel Established</p></div>}
           {messages.map((m) => {
             const isEmoji = isOnlyEmoji(m.content);
             const isMedia = isDataUrl(m.content) && !isEmoji;
@@ -377,9 +396,15 @@ const RoomView: React.FC<{ apiBase: string }> = ({ apiBase }) => {
       <div className="bg-white p-10 rounded-[56px] border border-slate-200/50 shadow-2xl text-center space-y-8 animate-in slide-in-from-top-6 duration-700">
          <div className="relative mx-auto bg-slate-900 w-24 h-24 rounded-[40px] flex items-center justify-center text-white shadow-2xl rotate-3 hover:rotate-0 transition-transform duration-500"><Lock size={44} /></div>
          <h2 className="text-3xl font-black text-slate-900 tracking-tight leading-tight">Secure Sync</h2>
-         {error && <div className="p-4 bg-red-50 border border-red-100 rounded-3xl text-red-600 text-xs font-black animate-shake flex items-center justify-center space-x-2"><AlertCircle size={14}/><span>{error}</span></div>}
+         {(error || apiError) && (
+           <div className="p-4 bg-red-50 border border-red-100 rounded-3xl text-red-600 text-[11px] font-black animate-shake flex flex-col space-y-1">
+             <div className="flex items-center justify-center space-x-2">
+               <AlertCircle size={14}/><span>{error || apiError}</span>
+             </div>
+           </div>
+         )}
          <button 
-          onClick={async () => { if(!password) { setError('Please set encryption key'); return; } setLoading(true); try { const res = await request<any>(apiBase, '/api/create-room'); if (res.code === 200) setActiveRoom(res.roomCode!); } finally { setLoading(false); } }}
+          onClick={async () => { if(!password) { setError('Please set encryption key'); return; } setLoading(true); try { const res = await request<any>(apiBase, '/api/create-room'); if (res.code === 200) setActiveRoom(res.roomCode!); else setError(res.msg || '节点创建失败'); } finally { setLoading(false); } }}
           className="w-full bg-slate-900 text-white py-5 rounded-[28px] font-black text-xs uppercase tracking-widest shadow-2xl shadow-slate-300 active:scale-95 transition-all"
          >
            {loading ? <Loader2 size={20} className="animate-spin" /> : 'Deploy New Node'}
