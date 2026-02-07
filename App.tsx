@@ -1,27 +1,36 @@
+
 import React, { useState, useEffect } from 'react';
 import { TabType } from './types';
 import RoomView from './components/RoomView';
 import FriendView from './components/FriendView';
 import SettingsView from './components/SettingsView';
-import { MessageSquare, Users, Settings, Shield } from 'lucide-react';
+import { MessageSquare, Users, Settings, Shield, Globe } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>(TabType.ROOM);
-  const DEFAULT_API = 'https://anon-chat-api.64209310.xyz';
+  
+  /**
+   * 核心逻辑：合并部署模式
+   * 当 DEFAULT_API 为空时，程序会通过相对路径请求 /api/...
+   * 这将直接触发同域名下的 Cloudflare Pages Functions。
+   */
+  const DEFAULT_API = ''; 
 
   const [apiBase, setApiBase] = useState<string>(() => {
     const stored = localStorage.getItem('anon_chat_api_base');
-    if (stored && stored.includes('workers.dev')) {
+    // 如果没有存储地址，或者之前存储的是 workers.dev 等旧地址，则重置为合并部署模式
+    if (!stored || stored.includes('workers.dev')) {
       return DEFAULT_API;
     }
-    return stored || DEFAULT_API;
+    return stored;
   });
-
-  const isDefault = apiBase === DEFAULT_API || apiBase === '';
 
   useEffect(() => {
     localStorage.setItem('anon_chat_api_base', apiBase);
   }, [apiBase]);
+
+  // 判断是否为合并部署模式（Native）
+  const isNative = apiBase === '';
 
   return (
     <div className="h-[100dvh] flex flex-col bg-[#F8FAFC] overflow-hidden">
@@ -39,14 +48,15 @@ const App: React.FC = () => {
           </div>
           
           <div className="flex items-center">
-            {isDefault ? (
+            {isNative ? (
               <div className="flex items-center space-x-1.5 text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-full text-[10px] font-black border border-emerald-100 shadow-sm shadow-emerald-100/50">
                 <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                <span>ACTIVE NODE</span>
+                <span>NATIVE MERGED NODE</span>
               </div>
             ) : (
               <div className="flex items-center space-x-1 text-amber-600 bg-amber-50 px-3 py-1.5 rounded-full text-[10px] font-black border border-amber-100">
-                <span>CUSTOM PROXY</span>
+                <Globe size={10} />
+                <span>REMOTE NODE</span>
               </div>
             )}
           </div>
@@ -75,7 +85,7 @@ const App: React.FC = () => {
               }`}
             >
               <MessageSquare size={20} strokeWidth={activeTab === TabType.ROOM ? 2.5 : 2} />
-              <span className={`text-[9px] mt-1 font-black uppercase tracking-tighter ${activeTab === TabType.ROOM ? 'opacity-100' : 'opacity-60'}`}>Chat</span>
+              <span className={`text-[9px] mt-1 font-black uppercase tracking-tighter ${activeTab === TabType.ROOM ? 'opacity-100' : 'opacity-60'}`}>聊天</span>
             </button>
             
             <button
@@ -85,7 +95,7 @@ const App: React.FC = () => {
               }`}
             >
               <Users size={20} strokeWidth={activeTab === TabType.FRIEND ? 2.5 : 2} />
-              <span className={`text-[9px] mt-1 font-black uppercase tracking-tighter ${activeTab === TabType.FRIEND ? 'opacity-100' : 'opacity-60'}`}>Private</span>
+              <span className={`text-[9px] mt-1 font-black uppercase tracking-tighter ${activeTab === TabType.FRIEND ? 'opacity-100' : 'opacity-60'}`}>私密</span>
             </button>
             
             <button
@@ -95,7 +105,7 @@ const App: React.FC = () => {
               }`}
             >
               <Settings size={20} strokeWidth={activeTab === TabType.SETTINGS ? 2.5 : 2} />
-              <span className={`text-[9px] mt-1 font-black uppercase tracking-tighter ${activeTab === TabType.SETTINGS ? 'opacity-100' : 'opacity-60'}`}>Vault</span>
+              <span className={`text-[9px] mt-1 font-black uppercase tracking-tighter ${activeTab === TabType.SETTINGS ? 'opacity-100' : 'opacity-60'}`}>设置</span>
             </button>
           </div>
         </div>
