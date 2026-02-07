@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { ShieldCheck, Trash2, RefreshCw, ChevronRight, Globe, AlertTriangle, CheckCircle, Smartphone } from 'lucide-react';
+import { ShieldCheck, Trash2, RefreshCw, ChevronRight, Globe, CheckCircle, Smartphone, HelpCircle } from 'lucide-react';
 
 interface SettingsViewProps {
   apiBase: string;
@@ -24,6 +24,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ apiBase, setApiBase, defaul
     setShowApiInput(false);
   };
 
+  const isNative = !apiBase || apiBase.trim() === '';
+
   return (
     <div className="space-y-6 max-w-md mx-auto">
       {/* Brand Header */}
@@ -32,23 +34,27 @@ const SettingsView: React.FC<SettingsViewProps> = ({ apiBase, setApiBase, defaul
             <ShieldCheck size={40} className="text-blue-600" strokeWidth={2.5} />
          </div>
          <h2 className="text-2xl font-black text-slate-900 tracking-tight">隐私保险箱</h2>
-         <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest block">AnonCloud Secure Protocol</p>
+         <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest block">Security Dashboard</p>
       </div>
 
-      {/* Connection Guide for China */}
-      <div className="bg-blue-600 rounded-[32px] p-6 text-white shadow-xl shadow-blue-200">
-        <div className="flex items-center space-x-3 mb-3">
+      {/* Connectivity Status for China */}
+      <div className="bg-gradient-to-br from-indigo-600 to-blue-700 rounded-[32px] p-6 text-white shadow-xl">
+        <div className="flex items-center space-x-3 mb-4">
           <Smartphone size={20} className="text-blue-200" />
-          <h4 className="font-black text-xs uppercase tracking-wider">中国大陆直连方案</h4>
+          <h4 className="font-black text-xs uppercase tracking-wider">连接优化指南 (中国区)</h4>
         </div>
-        <div className="space-y-3 opacity-90 text-[11px] leading-relaxed font-bold">
-          <p>如果你在大陆无法发送信息，请按以下步骤操作：</p>
-          <div className="bg-white/10 p-3 rounded-2xl space-y-2">
-            <p>1. <span className="text-blue-200">不要使用</span> *.workers.dev 或 *.pages.dev 域名。</p>
-            <p>2. 给 Pages 项目绑定一个<span className="text-blue-200">自定义域名</span>（如 .com/.net）。</p>
-            <p>3. 将 API 模式设为 <span className="text-blue-200">“同源模式”</span>（下方清空地址即可）。</p>
+        <div className="space-y-4 opacity-95 text-[11px] leading-relaxed font-bold">
+          <div className="bg-white/10 p-4 rounded-2xl border border-white/10 space-y-2">
+            <p className="flex items-start space-x-2">
+              <span className="bg-blue-400 text-white w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 text-[10px]">1</span>
+              <span>必须在 Cloudflare Pages 设置中绑定<b>您的自定义域名</b>（如 64209310.xyz）。</span>
+            </p>
+            <p className="flex items-start space-x-2">
+              <span className="bg-blue-400 text-white w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 text-[10px]">2</span>
+              <span>将“API 路由”设置为<b>同源原生模式</b>（当前已是默认）。</span>
+            </p>
           </div>
-          <p className="text-[10px] text-blue-100 italic">原理：自定义域名+同源 API 请求目前是最稳定的直连方式。</p>
+          <p className="px-1 text-white/60 italic text-[10px]">原理：通过自定义域名直连，可以绕过对 Cloudflare 默认域名的干扰。</p>
         </div>
       </div>
 
@@ -57,13 +63,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ apiBase, setApiBase, defaul
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <div className="p-2 bg-slate-50 text-slate-600 rounded-xl"><Globe size={18} /></div>
-            <span className="font-black text-[13px] text-slate-800 uppercase tracking-tighter">API 路由</span>
+            <span className="font-black text-[13px] text-slate-800 uppercase tracking-tighter">通信模式</span>
           </div>
           <button 
             onClick={() => setShowApiInput(!showApiInput)}
             className="text-[10px] font-black text-blue-600 uppercase"
           >
-            {showApiInput ? '收起' : '修改'}
+            {showApiInput ? '收起' : '高级设置'}
           </button>
         </div>
 
@@ -73,23 +79,25 @@ const SettingsView: React.FC<SettingsViewProps> = ({ apiBase, setApiBase, defaul
               type="text" 
               value={tempApi} 
               onChange={e => setTempApi(e.target.value)}
-              placeholder="留空即使用同源 API (推荐)"
+              placeholder="留空使用本域名 API (推荐)"
               className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-mono outline-none focus:ring-2 ring-blue-100"
             />
             <div className="flex space-x-2">
-              <button onClick={saveApi} className="flex-1 bg-slate-900 text-white py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest">保存设置</button>
-              <button onClick={() => { setTempApi(''); setApiBase(''); setShowApiInput(false); }} className="px-4 bg-slate-100 text-slate-500 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest">重置</button>
+              <button onClick={saveApi} className="flex-1 bg-slate-900 text-white py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest">保存</button>
+              <button onClick={() => { setTempApi(''); setApiBase(''); setShowApiInput(false); }} className="px-4 bg-slate-100 text-slate-500 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest">原生</button>
             </div>
           </div>
         ) : (
-          <div className="flex items-center justify-between bg-emerald-50 rounded-2xl px-4 py-3 border border-emerald-100">
+          <div className={`flex items-center justify-between rounded-2xl px-4 py-3 border ${isNative ? 'bg-emerald-50 border-emerald-100' : 'bg-blue-50 border-blue-100'}`}>
             <div className="flex flex-col">
-              <span className="text-[10px] text-emerald-600 font-black uppercase">当前模式</span>
-              <span className="text-xs font-mono text-emerald-700 truncate">
-                {apiBase ? '外部代理节点' : '同源原生节点 (Native)'}
+              <span className={`text-[10px] font-black uppercase ${isNative ? 'text-emerald-600' : 'text-blue-600'}`}>
+                {isNative ? '同源原生模式' : '第三方代理模式'}
+              </span>
+              <span className="text-xs font-mono text-slate-600 truncate max-w-[180px]">
+                {isNative ? 'Running on current domain' : apiBase}
               </span>
             </div>
-            <CheckCircle size={16} className="text-emerald-500 flex-shrink-0" />
+            {isNative ? <CheckCircle size={16} className="text-emerald-500" /> : <Globe size={16} className="text-blue-500" />}
           </div>
         )}
       </div>
@@ -102,7 +110,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ apiBase, setApiBase, defaul
         >
           <div className="flex items-center space-x-3">
             <div className="p-2 bg-white/10 rounded-xl text-blue-400"><RefreshCw size={20} /></div>
-            <span className="font-bold text-[13px] tracking-tight">同步云端状态</span>
+            <span className="font-bold text-[13px] tracking-tight">刷新并强制同步</span>
           </div>
           <ChevronRight size={18} className="text-white/20" />
         </button>
@@ -115,14 +123,15 @@ const SettingsView: React.FC<SettingsViewProps> = ({ apiBase, setApiBase, defaul
         >
           <div className="flex items-center space-x-3">
             <div className="p-2 bg-red-500/10 rounded-xl"><Trash2 size={20} /></div>
-            <span className="font-bold text-[13px] tracking-tight">销毁本地数据</span>
+            <span className="font-bold text-[13px] tracking-tight">销毁本地身份数据</span>
           </div>
           <ChevronRight size={18} className="text-red-500/20" />
         </button>
       </div>
 
-      <div className="text-center pt-4 opacity-10 select-none">
-         <p className="text-[9px] font-black uppercase tracking-[0.5em] text-slate-900">Encrypted Communication End</p>
+      <div className="flex items-center justify-center space-x-2 opacity-20 text-slate-900 pt-4">
+        <HelpCircle size={12} />
+        <p className="text-[9px] font-black uppercase tracking-[0.2em]">End-to-End Encrypted Tunnel</p>
       </div>
     </div>
   );
